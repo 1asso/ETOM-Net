@@ -4,3 +4,6 @@ class IOUtils:
 
     def plot_results_compact(results, log_dir, split):
         pass
+    
+    def save_results_compact(save_name, results, width_num):
+        pass

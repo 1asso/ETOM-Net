@@ -1,2 +1,3 @@
 class FlowUtils:
-    pass
+    def flow_to_color(flow):
+        pass
