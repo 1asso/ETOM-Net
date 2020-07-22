@@ -1,7 +1,10 @@
 {
     "python.pythonPath": "/usr/bin/python3",
     "cSpell.ignoreWords": [
+        "conv",
+        "conv d",
         "cudnn",
+        "d",
         "imglist",
         "numpy",
         "trimap",

@@ -7,7 +7,7 @@ local w, h
 
 local function createOutput(cin, scale)
     local output = nn.Sequential()
-    output:add(nn.JoinTable(2))
+    output:add(nn.JoinTable(2)) -- Use 2 as parameter cuz dim 1 is batch size
     local multi_task = nn.ConcatTable()
     local k   = 3
     local str = 1
@@ -28,7 +28,7 @@ end
 
 function normalizeOutput(scale)
     local output    = nn.Sequential()
-    local normalize = nn.ParallelTable()
+    local normalize = nn.ParallelTable() -- output table {Tensor(2), Tensor(2), Tensor(1)}
 
     local flow_branch = nn.Sequential()
     local ratio = 2.0^(scale-1) / w
@@ -39,7 +39,7 @@ function normalizeOutput(scale)
     normalize:add(nn.Identity()) -- Rho
 
     output:add(normalize)
-    output:add(nn.JoinTable(2))
+    output:add(nn.JoinTable(2)) -- output tensor(bs, 5, feature_map(w, h))
     output:add(Upsample(2))
     return output
 end
@@ -114,8 +114,10 @@ local function createModel(opt)
     local c_out = 0; 
 
     if opt.ms_num >= 5 then -- Scale 5 output 24 * 32
-        local s5_out     = deconv5 - createOutput((n_out+1)*c_4+c_out, 5)
-        local s5_out_up  = s5_out  - normalizeOutput(5)
+        local s5_out     = deconv5 - createOutput((n_out+1)*c_4+c_out, 5) 
+        -- deconv5: [4 * Tensor(bs * 128 * plane(24 * 32))]
+        -- createoutput: input (4 * 128) channels / output list of tensors [Tensor(bs, 2, 24, 32), T(2), T(1)] 
+        local s5_out_up  = s5_out  - normalizeOutput(5) 
         deconv4[n_out+2] = s5_out_up
         outputs[idx]     = s5_out
         idx   = idx + 1
