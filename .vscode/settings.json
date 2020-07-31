@@ -7,6 +7,10 @@
         "d",
         "imglist",
         "numpy",
+        "optim",
+        "optim state path",
+        "path",
+        "state",
         "trimap",
         "val",
         "val imglist"

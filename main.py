@@ -67,13 +67,13 @@ def init():
 
         # save and plot results for training stage
         add_history(epoch, train_loss, 'train')
-        IOUtils.plot_results_compact(train_hist, config.log_dir, 'train')
+        # IOUtils.plot_results_compact(train_hist, config.log_dir, 'train')
 
         # validation on synthetic data
         if epoch % config.val_interval == 0:
             val_results = trainer.test(epoch, val_loader, 'val')
             add_history(epoch, val_results, 'val')
-            IOUtils.plot_results_compact(val_hist, config.log_dir, 'val')
+            # IOUtils.plot_results_compact(val_hist, config.log_dir, 'val')
 
 if __name__ == '__main__':
     init()
