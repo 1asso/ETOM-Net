@@ -103,6 +103,77 @@ class CoarseNet(nn.Module):
         c_4 = 128
         c_5 = c_6 = 256
 
-
+        self.encoder0 = nn.Sequential(
+            Encoder(c_in, c_0, 3, 1, use_BN),
+            Encoder(c_0, c_0, 3, 1, use_BN)
+        )
+        self.encoder1 = nn.Sequential(
+            Encoder(c_0, c_1, 3, 2, use_BN),
+            Encoder(c_1, c_1, 3, 1, use_BN)
+        )
+        self.encoder2 = nn.Sequential(
+            Encoder(c_1, c_2, 3, 2, use_BN),
+            Encoder(c_2, c_2, 3, 1, use_BN)
+        )
+        self.encoder3 = nn.Sequential(
+            Encoder(c_2, c_3, 3, 2, use_BN),
+            Encoder(c_3, c_3, 3, 1, use_BN)
+        )
+        self.encoder4 = nn.Sequential(
+            Encoder(c_3, c_4, 3, 2, use_BN),
+            Encoder(c_4, c_4, 3, 1, use_BN)
+        )
+        self.encoder5 = nn.Sequential(
+            Encoder(c_4, c_5, 3, 2, use_BN),
+            Encoder(c_5, c_5, 3, 1, use_BN)
+        )
+        self.encoder6 = nn.Sequential(
+            Encoder(c_5, c_6, 3, 2, use_BN),
+            Encoder(c_6, c_6, 3, 1, use_BN)
+        )
+        
     def forward(self, input):
-        pass
+        conv0 = self.encoder0(input)
+        conv1 = self.encoder1(conv0)
+        conv2 = self.encoder2(conv1)
+        conv3 = self.encoder3(conv2)
+        conv4 = self.encoder4(conv3)
+        conv5 = self.encoder5(conv4)
+        conv6 = self.encoder6(conv5)
+
+        deconv6 = []
+        deconv5 = []
+        deconv4 = []
+        deconv3 = []
+        deconv2 = []
+        deconv1 = []
+        outputs = []
+        n_out = 3  # num of output branches (flow, mask, rho)
+        c_out_num = 5  # total num of channels (2 + 2 + 1)c
+
+        for i in range(n_out):
+            deconv6[i] = Decoder(c_6, c_5, 3, 1, True, use_BN)(conv6)
+        deconv6[n_out] = conv5
+
+        for i in range(n_out):
+            deconv5[i] = Decoder((n_out+1) * c_5, c_4, 3, 1, False, use_BN)(conv5)
+        deconv5[n_out] = conv4  # deconv5: 24 * 32
+
+        for i in range(n_out):
+            deconv4[i] = Decoder((n_out+1) * c_4, c_3, 3, 1, False, use_BN)(conv4)
+        deconv4[n_out] = conv3  # deconv4: 48 * 64
+
+        idx = 1
+        c_out = 0
+
+        for i in range(n_out):
+            deconv3[i] = Decoder((n_out+1) * c_3 + c_out, c_2, 3, 1, False, use_BN)(conv3)
+        deconv3[n_out] = conv2  # deconv3: 96 * 128
+
+        for i in range(n_out):
+            deconv2[i] = Decoder((n_out+1) * c_2 + c_out, c_1, 3, 1, False, use_BN)(conv2)
+        deconv2[n_out] = conv1  # deconv2: 192 * 256
+
+        for i in range(n_out):
+            deconv1[i] = Decoder((n_out+1) * c_1 + c_out, c_0, 3, 1, False, use_BN)(conv1)
+        deconv1[n_out] = conv0  # deconv1: 384 * 512

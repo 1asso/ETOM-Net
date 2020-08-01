@@ -5,6 +5,7 @@
         "conv d",
         "cudnn",
         "d",
+        "deconv",
         "imglist",
         "numpy",
         "optim",
@@ -15,6 +16,6 @@
         "val",
         "val imglist"
     ],
-    "python.linting.enabled": false
-
+    "python.linting.enabled": false,
+    "keyboard.dispatch": "keyCode"
 }
