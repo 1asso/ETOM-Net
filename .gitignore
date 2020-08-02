@@ -1,3 +1,4 @@
 *.pyc
 *.t7
 data
+.DS_Store
