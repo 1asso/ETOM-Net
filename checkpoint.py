@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 import math
 
-class CheckPoints:
+class CheckPoint:
     def latest(opt):
         if opt.resume == 'none':
             return None, None

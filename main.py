@@ -1,4 +1,4 @@
-## Import different module, options, dataloader, checkpoints, model, trainer
+## Import different module, option, dataloader, checkpoint, model, trainer
 
 import torch
 import sys
@@ -6,12 +6,11 @@ import os
 import logging
 import numpy as np
 from dataloader import DataLoader
-from checkpoints import CheckPoints
+from checkpoint import CheckPoint
 from models.init import setup
 from train import Trainer
 from option import args
-from utils.dict_utils import DictUtils
-from utils.io_utils import IOUtils
+import utility
 
 def init():
     ## Initialization
@@ -22,7 +21,7 @@ def init():
     torch.manual_seed(args.manual_seed)
 
     train_loader, val_loader = DataLoader.create(args)
-    check_p, optim_state = CheckPoints.latest(args)
+    check_p, optim_state = CheckPoint.latest(args)
     model = setup(args, check_p)
     trainer = Trainer(model, args, optim_state)
     # torch.backends.cudnn.fastest = True
@@ -33,18 +32,18 @@ def init():
 
     ## Configure start points and history
 
-    train_hist = IOUtils.load_t7(check_p, os.path.join(args.resume, 'train_hist.t7'))
-    val_hist = IOUtils.load_t7(check_p, os.path.join(args.resume, 'val_hist.t7'))
+    train_hist = utility.load_t7(check_p, os.path.join(args.resume, 'train_hist.t7'))
+    val_hist = utility.load_t7(check_p, os.path.join(args.resume, 'val_hist.t7'))
     start_epoch = check_p.epoch + 1 if check_p else args.start_epoch
 
     def add_history(epoch, history, split):
         if split == 'train':
             nonlocal train_hist
-            train_hist = DictUtils.insert_sub_dict(train_hist, history)
+            train_hist = utility.insert_sub_dict(train_hist, history)
             torch.save(os.path.join(args.save, split + '_hist.t7'), train_hist)
         if split == 'val':
             nonlocal val_hist
-            val_hist = DictUtils.insert_sub_dict(val_hist, history)
+            val_hist = utility.insert_sub_dict(val_hist, history)
             torch.save(os.path.join(args.save, split + '_hist.t7'), val_hist)
         else:
             logger.error('Unknown split:' + split)
@@ -56,20 +55,20 @@ def init():
         # train for a single epoch
         train_loss = trainer.train(epoch, train_loader, 'train')
 
-        # save checkpoints
+        # save checkpoint
         if epoch % args.save_interval == 0:
             print('**** Epoch {} saving checkpoint ****'.format(epoch))
-            CheckPoints.save(args, model, trainer.optim_state, epoch)
+            CheckPoint.save(args, model, trainer.optim_state, epoch)
 
         # save and plot results for training stage
         add_history(epoch, train_loss, 'train')
-        # IOUtils.plot_results_compact(train_hist, args.log_dir, 'train')
+        # utility.plot_results_compact(train_hist, args.log_dir, 'train')
 
         # validation on synthetic data
         if epoch % args.val_interval == 0:
             val_results = trainer.test(epoch, val_loader, 'val')
             add_history(epoch, val_results, 'val')
-            # IOUtils.plot_results_compact(val_hist, args.log_dir, 'val')
+            # utility.plot_results_compact(val_hist, args.log_dir, 'val')
 
 if __name__ == '__main__':
     init()

@@ -107,9 +107,9 @@ parser.add_argument('--retrain', type=str, default='none',
 parser.add_argument('--suffix', type=str, default='',
                     help='checkpoint suffix')
 parser.add_argument('--save_interval', type=int, default=1,
-                    help='epochs to save checkpoints(overwrite)')
+                    help='epochs to save checkpoint(overwrite)')
 parser.add_argument('--save_new', type=int, default=1,
-                    help='epochs to save new checkpoints')
+                    help='epochs to save new checkpoint')
 
 # loss options
 parser.add_argument('--flow_w', type=float, default=0.01,

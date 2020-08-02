@@ -1,12 +1,7 @@
 import torch
 import torch.nn as nn
 import time
-from models.model_utils import ModelUtils
-from utils.dict_utils import DictUtils
-from utils.str_utils import StrUtils
-from utils.io_utils import IOUtils
-from utils.flow_utils import FlowUtils
-from eval.eval_utils import EvalUtils
+import utility
 from criterion.TOMCriterionFlow import TOMCriterionFlow
 from criterion.TOMCriterionUnsup import TOMCriterionUnsup
 
@@ -33,18 +28,18 @@ class Trainer:
     def setup_multi_scale_data(self, opt):
         print('[Multi Scale] Setting up multi scale data')
         # generate multi-scale ground truth during training
-        ms_data = ModelUtils.create_multi_scale_data(opt)
+        ms_data = utility.create_multi_scale_data(opt)
         return ms_data
 
     def setup_warping(self, opt):
         print('Setting up warping module')
         if opt.refine:
             print('[Single Scale] Setting up single scale warping')
-            warping_module = ModelUtils.create_single_warping_module()
-            self.c_warp = ModelUtils.create_single_warping_module() # for CoarseNet
+            warping_module = utility.create_single_warping_module()
+            self.c_warp = utility.create_single_warping_module() # for CoarseNet
         else:
             print('[Multi Scale] Setting up multi scale warping')
-            warping_module = ModelUtils.create_multi_scale_data(opt.ms_num)
+            warping_module = utility.create_multi_scale_data(opt.ms_num)
         return warping_module
 
     def setup_criterion(self, opt):
@@ -111,26 +106,26 @@ class Trainer:
 
         for iter, sample in dataloader.run(split, self.opt.max_image_num):
             input = self.copy_input_data(sample)
-            times.data_time = StrUtils.add_time(times.data_time, timer)
+            times.data_time = utility.add_time(times.data_time, timer)
             
             if self.opt.refine:
                 input, coarse, c_ls = self.get_refine_input(input, predictor)
-                DictUtils.dicts_add(loss, c_ls)
+                utility.dicts_add(loss, c_ls)
 
             output = self.model.forward(input)
 
             flows, pred_imgs = self.flow_warping_forward(output) # warp input image with flow
-            times.model_time = StrUtils.add_time(times.model_time, timer)
+            times.model_time = utility.add_time(times.model_time, timer)
             
             unsup_loss, unsup_grads = self.unsup_crit_forward_backward(output, pred_imgs)
             # loss and grads for object mask, attenuation mask and restruction loss
-            DictUtils.dicts_add(loss, unsup_loss)
+            utility.dicts_add(loss, unsup_loss)
             warping_grads = self.flow_warping_back(flows, unsup_grads)
 
             # loss and grads for refractive flow field (supervised loss)
             sup_loss, sup_grads = self.sup_crit_forward_backward(flows)
-            DictUtils.dicts_add(loss, sup_loss)
-            times.loss_time = StrUtils.add_time(times.loss_time, timer)
+            utility.dicts_add(loss, sup_loss)
+            times.loss_time = utility.add_time(times.loss_time, timer)
 
             # combine all the gradients for the network
             model_grads = self.get_model_grads(unsup_grads, sup_grads, warping_grads)
@@ -139,7 +134,7 @@ class Trainer:
 
             # update parameters
             _, tmp_loss = torch.optim.adam(f_eval, self.params, self.optim_state)
-            times.model_time = StrUtils.add_time(times.model_time, timer)
+            times.model_time = utility.add_time(times.model_time, timer)
 
             if iter % self.opt.train_save == 0:
                 if self.opt.refine:
@@ -154,14 +149,14 @@ class Trainer:
         num = (num > 0 and num < output[0].size()[0]) and num or num < output[0].size()[0]
         c_pred = self.c_warp.forward([self.ref_imgs, coarse[0]])
         for id in range(0, num):
-            gt_fcolor = FlowUtils.flow_to_color(self.flows[id])
+            gt_fcolor = utility.flow_to_color(self.flows[id])
             results = [self.ref_imgs[id], self.tar_imgs[id], gt_fcolor, self.masks[id]-1, self.rho[id]]
-            c_fcolor = FlowUtils.flow_to_color(self.flows[id])
-            c_mask = torch.squeeze(EvalUtils.get_mask(coarse[1][[[id]]], True))
+            c_fcolor = utility.flow_to_color(self.flows[id])
+            c_mask = torch.squeeze(utility.get_mask(coarse[1][[[id]]], True))
             c_rho = coarse[2][id].repeat(3, 1, 1)
             coarse = [False, c_pred[id], c_fcolor, c_mask, c_rho]
 
-            r_fcolor = FlowUtils.flow_to_color(output[0][id])
+            r_fcolor = utility.flow_to_color(output[0][id])
             r_rho = output[1][id].repeat(3, 1, 1)
             refine = [False, pred_imgs[id], r_fcolor, False, r_rho]
 
@@ -182,24 +177,24 @@ class Trainer:
     def get_predicts(self, split, id, output, pred_img, m_scale):
         pred = [] 
         if m_scale:
-            gt_color_flow = FlowUtils.flow_to_color(self.multi_flows[m_scale][id])
+            gt_color_flow = utility.flow_to_color(self.multi_flows[m_scale][id])
         else:
-            gt_color_flow = FlowUtils.flow_to_color(self.flows[id])
+            gt_color_flow = utility.flow_to_color(self.flows[id])
         
         pred.append(gt_color_flow)
 
-        color_flow = FlowUtils.flow_to_color(output[0][id])
+        color_flow = utility.flow_to_color(output[0][id])
         pred.append(color_flow)
-        mask = torch.squeeze(EvalUtils.get_mask(output[1][[[id]]], True))
+        mask = torch.squeeze(utility.get_mask(output[1][[[id]]], True))
         pred.append(mask)
         rho = output[2][id].repeat(3, 1, 1)
         pred.append(rho)
 
         if m_scale:
-            final_img = EvalUtils.get_final_pred(self.multi_ref_imgs[m_scale][id], pred_img[id], mask, rho)
+            final_img = utility.get_final_pred(self.multi_ref_imgs[m_scale][id], pred_img[id], mask, rho)
             first_img = self.multi_tar_imgs[m_scale][id]
         else:
-            final_img = EvalUtils.get_final_pred(self.ref_imgs[id], pred_img[id], mask, rho)
+            final_img = utility.get_final_pred(self.ref_imgs[id], pred_img[id], mask, rho)
             first_img = self.tar_imgs[id]
 
         pred.insert(0, first_img)
@@ -264,8 +259,8 @@ class Trainer:
     def get_mask_error(self, output, is_coarse):
         gt_mask = self.masks[0] - 1
         mask = is_coarse and output[1][[[0]]] or output[-1][1][[[0]]]
-        pred_mask = EvalUtils.get_mask(mask, False)
-        self.mask_e = EvalUtils.cal_IoU_mask(gt_mask, pred_mask)
+        pred_mask = utility.get_mask(mask, False)
+        self.mask_e = utility.cal_IoU_mask(gt_mask, pred_mask)
         return self.mask_e
 
     def get_rho_error(self, output, is_coarse):
@@ -273,7 +268,7 @@ class Trainer:
         gt_rho = self.rhos[0]
         idx = (is_coarse or not self.opt.refine) and 2 or 1
         rho = (is_coarse or self.opt.refine) and output[idx][0] or output[-1][idx]
-        self.rho_e = EvalUtils.cal_err_rho(gt_rho, rho, True, gt_mask)
+        self.rho_e = utility.cal_err_rho(gt_rho, rho, True, gt_mask)
         return self.rho_e
 
     def get_flow_error(self, avg_epe):
@@ -363,29 +358,29 @@ class Trainer:
 
         for i, sample in enumerate(dataloader.run(split)):
             input = self.copy_input_data(sample)
-            times.data_time = StrUtils.add_time(times.data_time, timer)
+            times.data_time = utility.add_time(times.data_time, timer)
 
             if self.opt.refine:
                 input, coarse, c_ls = self.get_refine_input(input, predictor)
-                DictUtils.dicts_add(loss, c_ls)
+                utility.dicts_add(loss, c_ls)
 
             output = self.model.forward(input)
 
             flows, pred_imgs = self.flow_warping_forward(output)
-            time.model_time = StrUtils.add_time(times.model_time, timer)
+            time.model_time = utility.add_time(times.model_time, timer)
 
             unsup_loss = self.unsup_crit_forward_backward(output, pred_imgs, True)
-            DictUtils.dicts_add(loss, sup_loss)
+            utility.dicts_add(loss, sup_loss)
 
             sup_loss = self.sup_crit_forward_backward(flows, True)
-            DictUtils.dicts_add(loss, sup_loss)
-            times.loss_time = StrUtils.add_time(times.loss_time, timer)
+            utility.dicts_add(loss, sup_loss)
+            times.loss_time = utility.add_time(times.loss_time, timer)
 
             val_disp = (split == 'val') and (iter % self.opt.val_display) == 0
             if val_disp:
                 losses[iter] = self.display(epoch, iter, num_batches, loss, times, split)
-                DictUtils.dict_reset(loss)
-                DictUtils.dict_reset(times)
+                utility.dict_reset(loss)
+                utility.dict_reset(times)
             
             val_save = (split == 'val') and (iter % self.opt.val_save) == 0
 
@@ -394,20 +389,20 @@ class Trainer:
             elif val_save:
                 self.save_multi_results(epoch, iter, output, pred_imgs, split)
             
-        average_loss = DictUtils.dict_of_dict_average(losses)
-        print(' | Epoch: [{}] Losses summary: {}'.format(epoch, StrUtils.build_loss_string(average_loss)))
+        average_loss = utility.dict_of_dict_average(losses)
+        print(' | Epoch: [{}] Losses summary: {}'.format(epoch, utility.build_loss_string(average_loss)))
         return average_loss
 
     def display(self, epoch, iter, num_batches, loss, times, split):
-        time_elapsed = StrUtils.time_left(
+        time_elapsed = utility.time_left(
             self.opt.start_time, self.opt.n_epochs, num_batches, epoch, iter)
         interval = (split == 'train') and self.opt.train_display or self.opt.val_display
-        loss_average = DictUtils.dict_divide(loss, interval)
+        loss_average = utility.dict_divide(loss, interval)
 
         print(' | Epoch ({}): [{}][{}/{}] | {}'.\
             format(split, epoch, iter, num_batches, time_elapsed))
-        print(StrUtils.build_loss_string(loss_average))
-        print(StrUtils.build_time_string(times))
+        print(utility.build_loss_string(loss_average))
+        print(utility.build_time_string(times))
         return loss_average
 
     def copy_input_data(self, sample):
