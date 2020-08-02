@@ -1,4 +1,4 @@
-# TOM-Net
+# ETOM-Net
 Implementation of TOM-Net using Python
 
 
