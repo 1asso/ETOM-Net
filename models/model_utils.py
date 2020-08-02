@@ -1,5 +1,5 @@
 class ModelUtils:
-    def create_multi_scale_data(config):
+    def create_multi_scale_data(opt):
         pass
 
     def create_single_warping_module():

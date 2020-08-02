@@ -1,2 +1,2 @@
-def setup(config, checkpoint):
+def setup(opt, checkpoint):
     return 1

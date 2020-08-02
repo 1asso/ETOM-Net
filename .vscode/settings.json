@@ -6,6 +6,7 @@
         "cudnn",
         "d",
         "deconv",
+        "etom",
         "imglist",
         "numpy",
         "optim",

@@ -2,5 +2,5 @@ import torch
 
 
 class TOMCriterionUnsup:
-    def __init__(self, config):
+    def __init__(self, opt):
         pass

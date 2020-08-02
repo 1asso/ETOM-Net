@@ -1,7 +1,7 @@
 import torch.nn as nn
 import torch
 import torch.nn.functional as F
-import collections.OrderedDict
+from collections import OrderedDict
 import math
 
 
@@ -86,15 +86,14 @@ class Decoder(nn.Module):
         return self.decoder(input)
 
 class CoarseNet(nn.Module):
-    def __init__(self, config):
+    def __init__(self, opt):
         Super(CoarseNet, self).__init__()
-        self.w = config.crop_w
-        self.h = config.crop_h
-        self.use_BN = config.use_BN
-        self.c_in = 3
-        if config.in_trimap:
+        self.opt = opt
+        use_BN = opt.use_BN
+        c_in = 3
+        if opt.in_trimap:
             c_in += 1
-        if config.in_bg:
+        if opt.in_bg:
             c_in += 3
 
         c_0 = c_1 = 16
@@ -133,6 +132,9 @@ class CoarseNet(nn.Module):
         )
         
     def forward(self, input):
+        opt = self.opt
+        use_BN = self.use_BN
+        # encoder
         conv0 = self.encoder0(input)
         conv1 = self.encoder1(conv0)
         conv2 = self.encoder2(conv1)
@@ -141,39 +143,85 @@ class CoarseNet(nn.Module):
         conv5 = self.encoder5(conv4)
         conv6 = self.encoder6(conv5)
 
+        # decoder
         deconv6 = []
         deconv5 = []
         deconv4 = []
         deconv3 = []
         deconv2 = []
         deconv1 = []
-        outputs = []
+        results = []
         n_out = 3  # num of output branches (flow, mask, rho)
-        c_out_num = 5  # total num of channels (2 + 2 + 1)c
+        c_out_num = 5  # total num of channels (2 + 2 + 1)
 
         for i in range(n_out):
             deconv6[i] = Decoder(c_6, c_5, 3, 1, True, use_BN)(conv6)
         deconv6[n_out] = conv5
 
         for i in range(n_out):
-            deconv5[i] = Decoder((n_out+1) * c_5, c_4, 3, 1, False, use_BN)(conv5)
+            deconv5[i] = Decoder((n_out+1)*c_5, c_4, 3, 1, False, use_BN)(deconv6)
         deconv5[n_out] = conv4  # deconv5: 24 * 32
 
         for i in range(n_out):
-            deconv4[i] = Decoder((n_out+1) * c_4, c_3, 3, 1, False, use_BN)(conv4)
+            deconv4[i] = Decoder((n_out+1)*c_4, c_3, 3, 1, False, use_BN)(deconv5)
         deconv4[n_out] = conv3  # deconv4: 48 * 64
 
         idx = 1
         c_out = 0
+        ms_num = opt.ms_num
+        w = opt.crop_w
+
+        if ms_num >= 5:
+            # scale 5 output 24 * 32
+            s5_out = CreateOutput((n_out+1)*c_4+c_out, w, 5)(deconv5)
+            # deconv5: [4 * Tensor(bs * 128 * plane(24 * 32))]
+            # createoutput: input (4 * 128) channels / output list of tensors [Tensor(bs, 2, 24, 32), T(2), T(1)] 
+            s5_out_up = NormalizeOutput(w, 5)(s5_out)
+            deconv4[n_out+1] = s5_out_up
+            results[idx] = s5_out
+            idx += 1
+            c_out = c_out_num
 
         for i in range(n_out):
-            deconv3[i] = Decoder((n_out+1) * c_3 + c_out, c_2, 3, 1, False, use_BN)(conv3)
+            deconv3[i] = Decoder((n_out+1)*c_3+c_out, c_2, 3, 1, False, use_BN)(deconv4)
         deconv3[n_out] = conv2  # deconv3: 96 * 128
+        
+        if ms_num >= 4:
+            # scale 4 output 48 * 64
+            s4_out = CreateOutput((n_out+1)*c_3+c_out, w, 4)(deconv4)
+            s4_out_up = NormalizeOutput(w, 4)(s4_out)
+            deconv3[n_out+1] = s4_out_up
+            results[idx] = s4_out
+            idx += 1
+            c_out = c_out_num
 
         for i in range(n_out):
-            deconv2[i] = Decoder((n_out+1) * c_2 + c_out, c_1, 3, 1, False, use_BN)(conv2)
+            deconv2[i] = Decoder((n_out+1)*c_2+c_out, c_1, 3, 1, False, use_BN)(deconv3)
         deconv2[n_out] = conv1  # deconv2: 192 * 256
 
+        if ms_num >= 3:
+            # scale 3 output 96 * 128
+            s3_out = CreateOutput((n_out+1)*c_2+c_out, w, 3)(deconv3)
+            s3_out_up = NormalizeOutput(w, 3)(s3_out)
+            deconv2[n_out+1] = s3_out_up
+            results[idx] = s3_out
+            idx += 1
+            c_out = c_out_num
+
         for i in range(n_out):
-            deconv1[i] = Decoder((n_out+1) * c_1 + c_out, c_0, 3, 1, False, use_BN)(conv1)
+            deconv1[i] = Decoder((n_out+1)*c_1+c_out, c_0, 3, 1, False, use_BN)(deconv2)
         deconv1[n_out] = conv0  # deconv1: 384 * 512
+
+        if ms_num >= 2:
+            # scale 2 output 192 * 256
+            s2_out = CreateOutput((n_out+1)*c_1+c_out, w, 2)(deconv2)
+            s2_out_up = NormalizeOutput(w, 2)(s2_out)
+            deconv1[n_out+1] = s2_out_up
+            results[idx] = s2_out
+            idx += 1
+            c_out = c_out_num
+
+        s1_out = CreateOutput((n_out+1)*c_0+c_out, w, 1)(deconv1)
+        results[idx] = s1_out
+
+        return results

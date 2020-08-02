@@ -4,7 +4,7 @@ import math
 import logging
 from PIL import Image
 from torchvision import transforms
-form torchvision.utils import save_image
+from torchvision.utils import save_image
 
 
 class IOUtils:
@@ -61,7 +61,7 @@ class IOUtils:
                 w_idx = (idx-1) % w_n + 1
                 h_start = 1 + (h_idx-1) * (h+_int)
                 w_start = 1 + (w_idx-1) * (w+_int)
-                big_img[[[], [h_start:h_start+h-1], [w_start:w_start+w-1]]] = img
+                big_img[:, h_start:h_start+h-1, w_start:w_start+w-1] = img
             idx += 1
         save_image(big_img, save_image)
         
