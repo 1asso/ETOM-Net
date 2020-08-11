@@ -9,36 +9,36 @@ local M = {}
 local TOMDataset = torch.class('TOM.TOMDataset', M)
 torch.setdefaulttensortype('torch.FloatTensor')
 
-function TOMDataset:readList(file_path)
-   local img_info = {}
-   local counter   = 0
-   for name in io.lines(file_path) do
-       counter = counter + 1
-       img_info[counter] = name
-   end
-   print(string.format('Totaling %d images in split %s', counter, self.split))
-   return img_info
-end
+-- function TOMDataset:readList(file_path)
+--    local img_info = {}
+--    local counter   = 0
+--    for name in io.lines(file_path) do
+--        counter = counter + 1
+--        img_info[counter] = name
+--    end
+--    print(string.format('Totaling %d images in split %s', counter, self.split))
+--    return img_info
+-- end
 
-function TOMDataset:__init(opt, split)
-   self.opt = opt
-   self.split = split
-   if split == 'train' then 
-      self.img_list = paths.concat(opt.data_dir, opt.train_list)
-      self.dir      = paths.concat(opt.data_dir, 'train/Images') 
-   elseif split == 'val' then
-      self.img_list = paths.concat(opt.data_dir, opt.val_list)
-      self.dir      = paths.concat(opt.data_dir, 'val/Images')   
-   end
+-- function TOMDataset:__init(opt, split)
+--    self.opt = opt
+--    self.split = split
+--    if split == 'train' then 
+--       self.img_list = paths.concat(opt.data_dir, opt.train_list)
+--       self.dir      = paths.concat(opt.data_dir, 'train/Images') 
+--    elseif split == 'val' then
+--       self.img_list = paths.concat(opt.data_dir, opt.val_list)
+--       self.dir      = paths.concat(opt.data_dir, 'val/Images')   
+--    end
 
-   assert(paths.filep(self.img_list), 'filenames does not exist: ' .. self.img_list)
-   assert(paths.dirp(self.dir),       'directory does not exist: ' .. self.dir)
+--    assert(paths.filep(self.img_list), 'filenames does not exist: ' .. self.img_list)
+--    assert(paths.dirp(self.dir),       'directory does not exist: ' .. self.dir)
 
-   self.img_info = self:readList(self.img_list)
-   print(string.format('Dataset filenames: %s',       self.img_list))
-   print(string.format('Dataset image directory: %s', self.dir))
-   print(string.format('Image size H*W = %d*%d\n',    self.opt.scale_h, self.opt.scale_h))
-end
+--    self.img_info = self:readList(self.img_list)
+--    print(string.format('Dataset filenames: %s',       self.img_list))
+--    print(string.format('Dataset image directory: %s', self.dir))
+--    print(string.format('Image size H*W = %d*%d\n',    self.opt.scale_h, self.opt.scale_h))
+-- end
 
 function TOMDataset:rotateFlow(flow, angle)
   local flow_rot = image.rotate(flow, angle)

@@ -59,11 +59,11 @@ parser.add_argument('--max_image_num', type=int, default=-1,
 
 # device options
 parser.add_argument('--manual_seed', type=int, default=0,
-                    help='manually set RNG seed')
+                    help='manually set rand seed')
 parser.add_argument('--cudnn', type=str, default='fastest',
                     help='fastest|default|deterministic')
-parser.add_argument('--n_threads', type=int, default=8,
-                    help='number of data loading threads')
+parser.add_argument('--processes', type=int, default=8,
+                    help='number of data loading processes')
 
 # training options
 parser.add_argument('--start_epoch', type=int, default=1,

@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import time
+import easydict as edict
 import utility
 from criterion.TOMCriterionFlow import TOMCriterionFlow
 from criterion.TOMCriterionUnsup import TOMCriterionUnsup
@@ -78,12 +79,15 @@ class Trainer:
         c_ls.flow_epe_c = self.get_flow_error(self.c_flow_crit.epe)
         c_ls.mask_error_c = self.get_mask_error(coarse, True)
         c_ls.rho_error_c = self.get_rho_error(coarse, True)
+        
+        refine_in = {input, coarse[0], coarse[1], coarse[2]}
+        return refine_in, coarse, c_ls
 
     def train(self, epoch, dataloader, split, *predictor):
         split = split or 'train'
         self.optim_state.learning_rate = self.learning_rate(epoch)
         print('Epoch {}, Learning rate {}'.format(epoch, self.optim_state.learning_rate))
-        num_batches = dataloader.batch_size()
+        num_batches = dataloader.get_num_of_batches()
         print('====================')
         print(self.optim_state)
         print('====================')
@@ -99,7 +103,7 @@ class Trainer:
         
         loss = [] # loss every 20 iterations
         losses = [] # loss of entire epochs
-        num_batches = dataloader.batch_size()
+        num_batches = dataloader.get_num_of_batches()
 
         def f_eval():
             return crit_output, self.params # TODO - this should be grad params
@@ -114,10 +118,10 @@ class Trainer:
 
             output = self.model.forward(input)
 
-            flows, pred_imgs = self.flow_warping_forward(output) # warp input image with flow
+            flows, pred_images= self.flow_warping_forward(output) # warp input image with flow
             times.model_time = utility.add_time(times.model_time, timer)
             
-            unsup_loss, unsup_grads = self.unsup_crit_forward_backward(output, pred_imgs)
+            unsup_loss, unsup_grads = self.unsup_crit_forward_backward(output, pred_images)
             # loss and grads for object mask, attenuation mask and restruction loss
             utility.dicts_add(loss, unsup_loss)
             warping_grads = self.flow_warping_back(flows, unsup_grads)
@@ -138,27 +142,27 @@ class Trainer:
 
             if iter % self.opt.train_save == 0:
                 if self.opt.refine:
-                    self.save_refine_results(epoch, iter, output, pred_imgs, split, 1, coarse)
+                    self.save_refine_results(epoch, iter, output, pred_images, split, 1, coarse)
                 else:
-                    self.save_multi_results(epoch, iter, output, pred_imgs, split)
+                    self.save_multi_results(epoch, iter, output, pred_images, split)
                 print('Save results time: {}'.format(timer.time()))
             # timer.reset()
 
-    def save_refine_results(self, epoch, iter, output, pred_imgs, split, num, coarse):
+    def save_refine_results(self, epoch, iter, output, pred_images, split, num, coarse):
         split = split or 'train'
         num = (num > 0 and num < output[0].size()[0]) and num or num < output[0].size()[0]
-        c_pred = self.c_warp.forward([self.ref_imgs, coarse[0]])
+        c_pred = self.c_warp.forward([self.ref_images, coarse[0]])
         for id in range(0, num):
-            gt_fcolor = utility.flow_to_color(self.flows[id])
-            results = [self.ref_imgs[id], self.tar_imgs[id], gt_fcolor, self.masks[id]-1, self.rho[id]]
-            c_fcolor = utility.flow_to_color(self.flows[id])
+            gt_f_color = utility.flow_to_color(self.flows[id])
+            results = [self.ref_images[id], self.tar_images[id], gt_f_color, self.masks[id]-1, self.rho[id]]
+            c_f_color = utility.flow_to_color(self.flows[id])
             c_mask = torch.squeeze(utility.get_mask(coarse[1][[[id]]], True))
             c_rho = coarse[2][id].repeat(3, 1, 1)
-            coarse = [False, c_pred[id], c_fcolor, c_mask, c_rho]
+            coarse = [False, c_pred[id], c_f_color, c_mask, c_rho]
 
-            r_fcolor = utility.flow_to_color(output[0][id])
+            r_f_color = utility.flow_to_color(output[0][id])
             r_rho = output[1][id].repeat(3, 1, 1)
-            refine = [False, pred_imgs[id], r_fcolor, False, r_rho]
+            refine = [False, pred_images[id], r_f_color, False, r_rho]
 
             for val in coarse:
                 results.append(val)
@@ -191,19 +195,19 @@ class Trainer:
         pred.append(rho)
 
         if m_scale:
-            final_img = utility.get_final_pred(self.multi_ref_imgs[m_scale][id], pred_img[id], mask, rho)
-            first_img = self.multi_tar_imgs[m_scale][id]
+            final_img = utility.get_final_pred(self.multi_ref_images[m_scale][id], pred_img[id], mask, rho)
+            first_img = self.multi_tar_images[m_scale][id]
         else:
-            final_img = utility.get_final_pred(self.ref_imgs[id], pred_img[id], mask, rho)
-            first_img = self.tar_imgs[id]
+            final_img = utility.get_final_pred(self.ref_images[id], pred_img[id], mask, rho)
+            first_img = self.tar_images[id]
 
         pred.insert(0, first_img)
         pred.insert(1, final_img)
 
     def get_first_row(self, split, id):
         first = []
-        first.append(self.ref_imgs[id])
-        first.append(self.tar_imgs[id])
+        first.append(self.ref_images[id])
+        first.append(self.tar_images[id])
         first.append(False)
         if self.opt.in_trimap:
             first.append(self.trimaps[id] / 2.0)
@@ -239,20 +243,20 @@ class Trainer:
         flows = []
         if self.opt.refine:
             flows = output[0]
-            pred_imgs = self.warping_module.forward([self.ref_imgs, flows])
+            pred_images= self.warping_module.forward([self.ref_images, flows])
         else:
             for i in range(self.opt.ms_num):
                 flows[i] = output[i][0]
-            pred_imgs = self.warping_module.forward([self.multi_ref_imgs, flows])
-        return flows, pred_imgs
+            pred_images= self.warping_module.forward([self.multi_ref_images, flows])
+        return flows, pred_images
 
     def flow_warping_back(self, flows, unsup_grads):
-        crit_imgs_grads = []
+        crit_images_grads = []
         if not self.opt.refine:
             # refine stage does not use rec_loss
             for i in range(self.opt.ms_num):
-                crit_imgs_grads[i] = unsup_grads[i][0]
-            warping_grads = self.warping_module.backward([self.multi_ref_imgs, flows], crit_imgs_grads)[1]
+                crit_images_grads[i] = unsup_grads[i][0]
+            warping_grads = self.warping_module.backward([self.multi_ref_images, flows], crit_images_grads)[1]
         return warping_grads
 
     # for error calculation
@@ -278,7 +282,7 @@ class Trainer:
         self.flow_e = avg_epe / roi_ratio
         return self.flow_e
 
-    def unsup_crit_forward_backward(self, output, pred_imgs, forward_only):
+    def unsup_crit_forward_backward(self, output, pred_images, forward_only):
         crit_input = []
         crit_target = []
         if self.opt.refine:
@@ -291,8 +295,8 @@ class Trainer:
                 w_m = torch.mul(self.multi_flows[i].narrow(2, 3, 1), 
                 self.multi_rhos[i].expand_as(self.multi_flows[i]))
 
-                crit_input[i].append(torch.mul(pred_imgs[i], w_m))
-                crit_target[i].append(torch.mul(self.multi_tar_imgs[i], w_m))
+                crit_input[i].append(torch.mul(pred_images[i], w_m))
+                crit_target[i].append(torch.mul(self.multi_tar_images[i], w_m))
 
                 crit_input[i].append(output[i][1])
                 crit_target[i].append(self.multi_masks[i])
@@ -344,7 +348,7 @@ class Trainer:
 
     def test(self, epoch, dataloader, split, *predictor):
         timer = time.time()
-        num_batches = dataloader.batch_size()
+        num_batches = dataloader.get_num_of_batches()
 
         times = edict()
         times.data_time = 0
@@ -366,10 +370,10 @@ class Trainer:
 
             output = self.model.forward(input)
 
-            flows, pred_imgs = self.flow_warping_forward(output)
+            flows, pred_images= self.flow_warping_forward(output)
             time.model_time = utility.add_time(times.model_time, timer)
 
-            unsup_loss = self.unsup_crit_forward_backward(output, pred_imgs, True)
+            unsup_loss = self.unsup_crit_forward_backward(output, pred_images, True)
             utility.dicts_add(loss, sup_loss)
 
             sup_loss = self.sup_crit_forward_backward(flows, True)
@@ -385,9 +389,9 @@ class Trainer:
             val_save = (split == 'val') and (iter % self.opt.val_save) == 0
 
             if self.opt.refine:
-                self.save_refine_results(epoch, iter, output, pred_imgs, split, -1 ,coarse)
+                self.save_refine_results(epoch, iter, output, pred_images, split, -1 ,coarse)
             elif val_save:
-                self.save_multi_results(epoch, iter, output, pred_imgs, split)
+                self.save_multi_results(epoch, iter, output, pred_images, split)
             
         average_loss = utility.dict_of_dict_average(losses)
         print(' | Epoch: [{}] Losses summary: {}'.format(epoch, utility.build_loss_string(average_loss)))
@@ -411,27 +415,27 @@ class Trainer:
             self.copy_inputs_multi_scale(sample)
 
         if self.opt.in_trimap:
-            network_input = torch.cat(self.tar_imgs, self, trimaps, 1)
+            network_input = torch.cat(self.tar_images, self, trimaps, 1)
         elif self.opt.in_bg:
-            network_input = torch.cat(self.ref_imgs, self.tar_imgs, 1)
+            network_input = torch.cat(self.ref_images, self.tar_images, 1)
         else:
-            network_input = self.tar_imgs
+            network_input = self.tarimages_
         
         return network_input
 
     def copy_inputs(self, sample):
         # copy the input to a CUDA tensor, if using 1 GPU, or to pinned memory,
         # if using DataParallelTable. The target is always copied to a CUDA tensor
-        self.ref_imgs = self.ref_imgs or torch.cuda.FloatTensor()
-        self.tar_imgs = self.tar_imgs or torch.cuda.FloatTensor()
+        self.ref_images= self.ref_images or torch.cuda.FloatTensor()
+        self.tar_images= self.tar_images or torch.cuda.FloatTensor()
         self.masks = self.masks or torch.cuda.FloatTensor()
         self.rhos = self.rhos or torch.cuda.FloatTensor()
         self. flows = self.flows or torch.cuda.FloatTensor()
         sz = sample.input.size()
         n, c, h, w = sample.input.size().tolist()
 
-        self.ref_imgs.resize_(n, 3, h, w).copy_(sample.input[[[],[0, 2],[],[]]])
-        self.tar_imgs.resize_(n, 3, h, w).copy_(sample.input[[[],[3, 5],[],[]]])
+        self.ref_images.resize_(n, 3, h, w).copy_(sample.input[[[],[0, 2],[],[]]])
+        self.tar_images.resize_(n, 3, h, w).copy_(sample.input[[[],[3, 5],[],[]]])
         self.masks.resize(n, h, w).copy_(sample.masks)
         self.rhos.resize(n, h, w).copy_(sample.rhos)
         self.flows.resize(n, 3, h, w).copy_(sample.flows)
@@ -440,11 +444,11 @@ class Trainer:
             self.trimaps.resize(n, 1, h, w).copy_(sample.trimaps)
 
     def copy_inputs_multi_scale(self, sample):
-        multiscale_in = [self.ref_imgs, self.tar_imgs, self.rhos, self.masks, self.flows]
+        multiscale_in = [self.ref_images, self.tar_images, self.rhos, self.masks, self.flows]
 
         multiscale_out = self.multi_scale_data.forward(multiscale_in)
-        self.multi_ref_imgs = multiscale_out[0]
-        self.multi_tar_imgs = multiscale_out[1]
+        self.multi_ref_images a=e multiscale_out[0]
+        self.multi_tar_images = multiscale_out[1]
         self.multi_rhos = multiscale_out[2]
         self.multi_masks = multiscale_out[3]
         self.multi_flows = multiscale_out[4]

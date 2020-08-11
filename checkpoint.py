@@ -2,6 +2,7 @@ import os
 import torch
 import torch.nn as nn
 import math
+import easydict as edict
 
 class CheckPoint:
     def latest(opt):

@@ -5,7 +5,7 @@ import sys
 import os
 import logging
 import numpy as np
-from dataloader import DataLoader
+from dataloader import create
 from checkpoint import CheckPoint
 from models.init import setup
 from train import Trainer
@@ -20,7 +20,7 @@ def init():
     torch.set_num_threads(1)
     torch.manual_seed(args.manual_seed)
 
-    train_loader, val_loader = DataLoader.create(args)
+    train_loader, val_loader = create(args)
     check_p, optim_state = CheckPoint.latest(args)
     model = setup(args, check_p)
     trainer = Trainer(model, args, optim_state)
