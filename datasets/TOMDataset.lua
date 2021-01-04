@@ -281,27 +281,27 @@ function TOMDataset:_generateTrimapErosion(mask, crop_h, crop_w)
    return trimap
 end
 
-function TOMDataset:_loadImage(path, channels)
-   local ok, input = pcall(function()
-       if channels == 1 then
-           return image.load(path, channels, 'byte')
-       else
-           return image.load(path, channels, 'float')
-       end
-   end)
-   -- Sometimes image.load fails because the file extension does not match the
-   -- image format. In that case, use image.decompress on a ByteTensor.
-   if not ok then
-      local f = io.open(path, 'r')
-      assert(f, 'Error reading: ' .. tostring(path))
-      local data = f:read('*a')
-      f:close()
-      local b = torch.ByteTensor(string.len(data))
-      ffi.copy(b:data(), data, b:size(1))
-      input = image.decompress(b, 3, 'float')
-   end
-   return input 
-end
+-- function TOMDataset:_loadImage(path, channels)
+--    local ok, input = pcall(function()
+--        if channels == 1 then
+--            return image.load(path, channels, 'byte')  /return [c, h, w]
+--        else
+--            return image.load(path, channels, 'float')
+--        end
+--    end)
+--    -- Sometimes image.load fails because the file extension does not match the
+--    -- image format. In that case, use image.decompress on a ByteTensor.
+--    if not ok then
+--       local f = io.open(path, 'r')
+--       assert(f, 'Error reading: ' .. tostring(path))
+--       local data = f:read('*a')
+--       f:close()
+--       local b = torch.ByteTensor(string.len(data))
+--       ffi.copy(b:data(), data, b:size(1))
+--       input = image.decompress(b, 3, 'float')
+--    end
+--    return input 
+-- end
 
 function TOMDataset:size()
    return #self.img_info

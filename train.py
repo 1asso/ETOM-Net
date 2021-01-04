@@ -1,10 +1,11 @@
 import torch
-import torch.nn as nn
 import time
 import easydict as edict
 import utility
 from criterion.TOMCriterionFlow import TOMCriterionFlow
 from criterion.TOMCriterionUnsup import TOMCriterionUnsup
+import logging
+import os
 
 class Trainer:
     def __init__(self, model, opt, optim_state):
@@ -58,6 +59,7 @@ class Trainer:
             self.unsup_crit = TOMCriterionUnsup(opt)
 
     def setup_solver(self, opt, in_optim_state):
+        optim_state = None
         if opt.solver == 'ADAM':
             print('[Solver] Using Adam solver')
             optim_state = in_optim_state or {
@@ -100,6 +102,8 @@ class Trainer:
         times.data_time = 0
         times.model_time = 0
         times.loss_time = 0
+
+        coarse = None
         
         loss = [] # loss every 20 iterations
         losses = [] # loss of entire epochs
@@ -170,7 +174,7 @@ class Trainer:
                 results.append(val)
 
             save_name = self.get_save_name(self.opt.log_dir, split, epoch, iter, id)
-            IOUtils.save_results_compact(save_name, results, 5)
+            utility.save_results_compact(save_name, results, 5)
 
     def get_save_name(self, log_dir, split, epoch, iter, id):
         f_path = '{}/{}/Images/'.format(log_dir, split)
@@ -233,7 +237,7 @@ class Trainer:
                 results.append(val)
         
         save_name = self.get_save_name(self.opt.log_dir, split, epoch, iter, id)
-        IOUtils.save_results_compact(save_name, results, 6)
+        utility.save_results_compact(save_name, results, 6)
         print('Flow magnitude: Mas {}, Min {}, Mean {}'.format(
             torch.max(output[scales][0][id]), torch.min(output[scales][0][id]), 
             torch.mean(torch.abs(output[scales][0][id]))))
@@ -252,6 +256,7 @@ class Trainer:
 
     def flow_warping_back(self, flows, unsup_grads):
         crit_images_grads = []
+        warping_grads = None
         if not self.opt.refine:
             # refine stage does not use rec_loss
             for i in range(self.opt.ms_num):
@@ -357,6 +362,8 @@ class Trainer:
         loss = []
         losses = []  # loss in the entire epoch
 
+        coarse = None
+
         print('*** Testing after {} epochs ***'.format(epoch))
         self.model.evaluate()
 
@@ -374,7 +381,7 @@ class Trainer:
             time.model_time = utility.add_time(times.model_time, timer)
 
             unsup_loss = self.unsup_crit_forward_backward(output, pred_images, True)
-            utility.dicts_add(loss, sup_loss)
+            utility.dicts_add(loss, unsup_loss)
 
             sup_loss = self.sup_crit_forward_backward(flows, True)
             utility.dicts_add(loss, sup_loss)
@@ -415,7 +422,7 @@ class Trainer:
             self.copy_inputs_multi_scale(sample)
 
         if self.opt.in_trimap:
-            network_input = torch.cat(self.tar_images, self, trimaps, 1)
+            network_input = torch.cat(self.tar_images, self.trimaps, 1)
         elif self.opt.in_bg:
             network_input = torch.cat(self.ref_images, self.tar_images, 1)
         else:
@@ -447,7 +454,7 @@ class Trainer:
         multiscale_in = [self.ref_images, self.tar_images, self.rhos, self.masks, self.flows]
 
         multiscale_out = self.multi_scale_data.forward(multiscale_in)
-        self.multi_ref_images a=e multiscale_out[0]
+        self.multi_ref_images = multiscale_out[0]
         self.multi_tar_images = multiscale_out[1]
         self.multi_rhos = multiscale_out[2]
         self.multi_masks = multiscale_out[3]

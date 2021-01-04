@@ -5,9 +5,14 @@ import logging
 from torchvision import transforms
 from torchvision.utils import save_image
 import time
+import struct
+
+TAG = 202021.25
+
 
 # IO utilities
 def load_t7(condition, f_name):
+    t7_file = None
     if condition:
         if os.path.isfile(f_name):
             t7_file = torch.load(f_name)
@@ -16,13 +21,12 @@ def load_t7(condition, f_name):
 
 def resize_tensor(input_tensors, h, w):
     final_output = None
-    batch_size, channel, height, width = input_tensors.shape
     input_tensors = torch.squeeze(input_tensors, 1)
 
     for img in input_tensors:
         img_PIL = transforms.ToPILImage()(img)
-        img_PIL = torchvision.transforms.Resize([h, w])(img_PIL)
-        img_PIL = torchvision.transforms.ToTensor()(img_PIL)
+        img_PIL = transforms.Resize([h, w])(img_PIL)
+        img_PIL = transforms.ToTensor()(img_PIL)
         if final_output is None:
             final_output = img_PIL
         else:
@@ -40,7 +44,9 @@ def save_results_compact(save_name, results, width_num):
     h_n = math.ceil(num / w_n)
     idx = 1
     big_img = None
-    for k, v in results.items():
+    fix_h = fix_w = None
+    h = w = None
+    for _, v in results.items():
         if v:
             img = v.float()
             if img.dim() > 3 or img.dim() < 2:
@@ -54,7 +60,7 @@ def save_results_compact(save_name, results, width_num):
             if img.size(0) != 3:
                 img = torch.repeat(img, 3, 1, 1)
             if img.size(1) != fix_h or img.size(2) != fix_w:
-                img = self.resize_tensor(img, fix_h, fix_w)
+                img = resize_tensor(img, fix_h, fix_w)
 
             h_idx = math.floor((idx-1) / w_n) + 1
             w_idx = (idx-1) % w_n + 1
@@ -99,6 +105,38 @@ def build_time_string(times, no_total):
 
 def flow_to_color(flow):
     pass
+
+def load_short_flow_file(filename):
+    f = open(filename, 'rb')
+    tag = struct.unpack('f', f.read(4))[0]
+    assert tag == TAG, 'Unable to read ' + filename + ' because of wrong tag'
+
+    w = struct.unpack('i', f.read(4))[0]
+    h = struct.unpack('i', f.read(4))[0]
+    channels = 2
+
+    l = [] # in file: [h, w, c]
+    for i, val in enumerate(struct.iter_unpack('h', f.read())):
+        if not i % 2:
+            l.append([])
+        l[int(i/2)].append(val[0])
+
+    flow = torch.ShortTensor(l).reshape(h, w, channels)
+    f.close()
+
+    flow = flow.permute(2, 0, 1).float() # output: [c, h, w]
+    return flow
+
+def save_short_flow_file(filename, flow):
+    flow = flow.short().permute(1, 2, 0).clone()
+    f = open(filename, 'wb')
+    f.write(struct.pack('f', TAG))
+    f.write(struct.pack('i', flow.size(1)))
+    f.write(struct.pack('i', flow.size(0)))
+    for val in flow.reshape([flow.numel()]).tolist():
+        f.write(struct.pack('h', val))
+
+    f.close()
 
 # dict utilities
 

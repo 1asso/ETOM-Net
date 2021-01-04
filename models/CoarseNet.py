@@ -19,11 +19,11 @@ class CreateOutput(nn.Module):
     def forward(self, input):
         # All tensors in the input list must either have the same shape
         # (except in the concatenating dimension) or be empty.
-        # input: [4 * Tensor(batch_size, 128, feature_map(w, h))]
+        # input: [4 * Tensor(batch_size, 128, feature_map(h, w))]
 
         input = torch.cat(input, dim=1) 
         # Use dim=1 because of the existence of batch_size
-        # output: Tensor(batch_size, 4 * 128, feature_map(w, h))
+        # output: Tensor(batch_size, 4 * 128, feature_map(h, w))
         
         flow_path = self.conv1(input)
         flow_path = self.th(flow_path)
@@ -87,7 +87,7 @@ class Decoder(nn.Module):
 
 class CoarseNet(nn.Module):
     def __init__(self, opt):
-        Super(CoarseNet, self).__init__()
+        super(CoarseNet, self).__init__()
         self.opt = opt
         use_BN = opt.use_BN
         c_in = 3
@@ -132,6 +132,12 @@ class CoarseNet(nn.Module):
         )
         
     def forward(self, input):
+        c_0 = c_1 = 16
+        c_2 = 32
+        c_3 = 64
+        c_4 = 128
+        c_5 = c_6 = 256
+        
         opt = self.opt
         use_BN = self.use_BN
         # encoder

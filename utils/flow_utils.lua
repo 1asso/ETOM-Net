@@ -20,34 +20,34 @@ function flow_utils.cal_epe_flow(gt_flow, pred_flow, valid, mask)
     return error_all, error_roi, buffer
 end
 
-function flow_utils.writeShortFlowFile(filename, F)
-    F = F:short():permute(2,3,1):clone()
-    TAG_FLOAT = 202021.25 
-    local ff = torch.DiskFile(filename, 'w'):binary()
-    ff:writeFloat(TAG_FLOAT)
-    ff:writeInt(F:size(2)) -- width
-    ff:writeInt(F:size(1)) -- height
-    ff:writeShort(F:storage())
-    ff:close()
-end
+-- function flow_utils.writeShortFlowFile(filename, F)
+--     F = F:short():permute(2,3,1):clone()
+--     TAG_FLOAT = 202021.25 
+--     local ff = torch.DiskFile(filename, 'w'):binary()
+--     ff:writeFloat(TAG_FLOAT)
+--     ff:writeInt(F:size(2)) -- width
+--     ff:writeInt(F:size(1)) -- height
+--     ff:writeShort(F:storage())
+--     ff:close()
+-- end
 
-function flow_utils.loadShortFlowFile(filename)
-    TAG_FLOAT = 202021.25 
-    local ff = torch.DiskFile(filename):binary()
-    local tag = ff:readFloat()
-    if tag ~= TAG_FLOAT then
-      xerror('unable to read '..filename..  ' perhaps bigendian error','readflo()')
-    end
-    local w = ff:readInt()
-    local h = ff:readInt()
-    local nbands = 2
-    local tf = torch.ShortTensor(h, w, nbands)
-    ff:readShort(tf:storage())
-    ff:close()
+-- function flow_utils.loadShortFlowFile(filename)
+--     TAG_FLOAT = 202021.25 
+--     local ff = torch.DiskFile(filename):binary()
+--     local tag = ff:readFloat()
+--     if tag ~= TAG_FLOAT then
+--       xerror('unable to read '..filename..  ' perhaps bigendian error','readflo()')
+--     end
+--     local w = ff:readInt()
+--     local h = ff:readInt()
+--     local nbands = 2
+--     local tf = torch.ShortTensor(h, w, nbands)
+--     ff:readShort(tf:storage())
+--     ff:close()
 
-    local flow = tf:permute(3,1,2):float()
-    return flow
-end
+--     local flow = tf:permute(3,1,2):float()
+--     return flow
+-- end
 
 function flow_utils.flowToColor(flow)
     local flow = flow:float()

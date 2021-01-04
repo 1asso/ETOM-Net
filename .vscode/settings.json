@@ -1,11 +1,12 @@
 {
-    "python.pythonPath": "/usr/bin/python3",
+    "python.pythonPath": "/Users/Ryan/miniconda3/envs/env_pytorch/bin/python",
     "cSpell.ignoreWords": [
         "conv",
         "conv d",
         "cudnn",
         "d",
         "deconv",
+        "easydict",
         "etom",
         "imglist",
         "numpy",
@@ -18,5 +19,5 @@
         "val imglist"
     ],
     "python.linting.enabled": false,
-    "keyboard.dispatch": "keyCode"
+    // "keyboard.dispatch": "keyCode"
 }
