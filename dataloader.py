@@ -113,7 +113,7 @@ class ETOMDataset:
 
         #     # get the regions of boundary and total internal reflection
         #     k_e = torch.rand(1, 1) * 2 + 1
-        #     mask_roi = 
+        #     mask_roi = ... 
         else:
             images = torch.cat([image_ref, image_tar], 1)
 
