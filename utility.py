@@ -1,3 +1,4 @@
+from models.CoarseNet import CreateOutput
 import os
 import torch
 import math
@@ -6,6 +7,8 @@ from torchvision import transforms
 from torchvision.utils import save_image
 import time
 import struct
+import torch.nn as nn
+import torch.nn.functional as F
 
 TAG = 202021.25
 
@@ -82,25 +85,6 @@ def build_loss_string(losses, no_total):
         s += ' [Total Loss: {}]'.format(total_loss) 
     return s
 
-def time_left(start_time, n_epochs, batches, cur_epoch, cur_iter):
-    cur_time = time.time()
-    time_so_far = (cur_time - start_time) / 3600.0
-    total_step = n_epochs * batches + cur_iter
-    cur_step = (cur_epoch - 1) * batches + cur_iter
-    time_left = time_so_far * (total_step / cur_step - 1)
-    s = 'Time elapsed: {} hours | Time left: {} hours'.format(time_so_far, time_left)
-    return s
-
-def build_time_string(times, no_total):
-    total_time = 0
-    s = ''
-    for k, v in times.items():
-        s += '{}: {} seconds, '.format(k, v)
-        total_time += v
-    if not no_total:
-        s += ' [Total time: {}'.format(total_time)
-    return s
-
 # flow utilities
 
 def flow_to_color(flow):
@@ -140,6 +124,12 @@ def save_short_flow_file(filename, flow):
 
 # dict utilities
 
+def dicts_add(dict, dict_to_add):
+    for k, v in dict_to_add.items():
+        if not k in dict.keys():
+            dict[k] = 0
+        dict[k] = dict[k] + v
+
 def insert_sub_dict(_dict, sub_dict):
     _dict.update(sub_dict)
 
@@ -159,19 +149,96 @@ def dict_divide(t, n):
 
 # model utilities
 
-def create_multi_scale_data(opt):
-    pass
+class CreateMultiScaleData(nn.Module):
+    def __init__(self, ms_num):
+        super(CreateMultiScaleData, self).__init__()
+        self.ms_num = ms_num
 
-def create_single_warping_module():
-    pass
+    def forward(self, input):
+        result = [[],[],[],[],[]]
+        for i in range(self.ms_num, 0, -1):
+            scale = 2**(i-1)
+            result[0].append(nn.AvgPool2d((scale, scale))(input[0]))
+            result[1].append(nn.AvgPool2d((scale, scale))(input[1]))
+            result[2].append(nn.AvgPool2d((scale, scale))(input[2]))
+            result[3].append(nn.MaxPool2d((scale, scale))(input[3]))
+            result[4].append(nn.AvgPool2d((scale, scale))(input[4]) * (1/scale))
+
+        return result
+
+class CreateMultiScaleWarping(nn.Module):
+    def __init__(self, ms_num):
+        super(CreateMultiScaleWarping, self).__init__()
+        self.ms_num = ms_num
+
+    def forward(self, input):
+        warping_module = []
+        for i in range(self.ms_num):
+            input_0 = input[0][i] # multi_ref_images
+            input_1 = input[1][i] # flows
+            single_warping = create_single_warping_module([input_0, input_1])
+            warping_module.append(single_warping)
+
+        return warping_module
+
+
+def create_single_warping_module(_input):
+    input = _input[0]
+    grid = grid_generator(_input[1])
+    output = F.grid_sample(input, grid, align_corners=True)
+    return output
+
+def grid_generator(_flows):
+	flows = _flows.clone()
+	batch = flows.size(0)
+	height = flows.size(2)
+	width = flows.size(3)
+	
+	if type(flows) is torch.Tensor:
+		base_grid_extend = torch.Tensor(batch, height, width, 2)
+		base_grid = torch.Tensor(height, width, 2)
+	else:
+		base_grid_extend = torch.cuda.Tensor(batch, height, width, 2)
+		base_grid = torch.cuda.Tensor(height, width, 2)
+	
+	for i in range(height):
+		base_grid[i, :, 0] = -1 + (i-1) / (height-1) * 2
+		
+	for i in range(width):
+		base_grid[:, i, 1] = -1 + (i-1) / (width-1) * 2
+	
+	for i in range(batch):
+		base_grid_extend[i, :, :] = base_grid.clone()
+		
+	if flows.size(1) == 2:
+		flows = flows.transpose(1, 2).transpose(2, 3)
+		
+	flows[:, :, :, 0] /= height / 2
+	flows[:, :, :, 1] /= width / 2
+	
+	output = base_grid_extend.add(flows)
+	return output
+
 
 # evaluation utilities
+
+class EPELoss(nn.Module):
+    def __init__(self):
+        super(EPELoss, self).__init__()
+
+    def forward(self, output, target):
+        return torch.norm(target-output, p=2, dim=1).mean()
 
 def get_final_pred(ref_img, pred_img, pred_mask, pred_rho):
     pass
 
-def get_mask(masks, repeat3):
-    pass
+def get_mask(masks):
+    n, c, h, w = list(masks.size())
+    m = masks.transpose(1, 3).transpose(1,2)
+    m = m.reshape(int(m.numel()/m.size(3)), m.size(3))
+    _, pred = m.max(1)
+    pred = pred.reshape(n, 1, h, w)
+    return pred
 
 def cal_IoU_mask(gt_mask, pred_mask):
     pass

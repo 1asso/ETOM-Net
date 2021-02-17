@@ -6,12 +6,12 @@
         "cudnn",
         "d",
         "deconv",
-        "easydict",
         "etom",
         "imglist",
         "numpy",
         "optim",
         "optim state path",
+        "pandas",
         "path",
         "state",
         "trimap",
@@ -20,4 +20,5 @@
     ],
     "python.linting.enabled": false,
     // "keyboard.dispatch": "keyCode"
+    "python.analysis.extraPath": ["./sources"],
 }

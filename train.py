@@ -1,11 +1,8 @@
 import torch
-import time
-import easydict as edict
 import utility
-from criterion.TOMCriterionFlow import TOMCriterionFlow
-from criterion.TOMCriterionUnsup import TOMCriterionUnsup
 import logging
 import os
+import torch.nn as nn
 
 class Trainer:
     def __init__(self, model, opt, optim_state):
@@ -21,7 +18,7 @@ class Trainer:
         
         print('Get model parameters and gradient parameters')
         self.params = model.parameters()
-        print('Total number of parameters in TOM-Net: ' + str(torch.numel(self.params)))
+        print('Total number of parameters in TOM-Net: ' + str(sum(p.numel() for p in model.parameters())))
         # variable to store error for the estimated environment matte
         self.flow_e = 0
         self.mask_e = 0
@@ -30,7 +27,7 @@ class Trainer:
     def setup_multi_scale_data(self, opt):
         print('[Multi Scale] Setting up multi scale data')
         # generate multi-scale ground truth during training
-        ms_data = utility.create_multi_scale_data(opt)
+        ms_data = utility.CreateMultiScaleData(opt.ms_num)
         return ms_data
 
     def setup_warping(self, opt):
@@ -41,31 +38,32 @@ class Trainer:
             self.c_warp = utility.create_single_warping_module() # for CoarseNet
         else:
             print('[Multi Scale] Setting up multi scale warping')
-            warping_module = utility.create_multi_scale_data(opt.ms_num)
+            warping_module = utility.CreateMultiScaleWarping(opt.ms_num)
         return warping_module
 
     def setup_criterion(self, opt):
         print('Setting up criterion')
         print('[Flow Loss] Setting up criterion for flow')
-        self.flow_crit = TOMCriterionFlow(opt)
+        self.flow_criterion = utility.EPELoss()
         if opt.refine:
             # for refinement
             # in refinement stage, an addition flow criterion is initialized
             # to calculate the EPE error for CoarseNet
-            self.c_flow_crit = TOMCriterionFlow(opt)
+            self.c_flow_criterion = utility.EPELoss()  # TODO
 
-            print('[Unsup Loss] Setting up criterion for mask, rho and reconstruction image')
-            # criterion for mask, attenuation mask and resconstruction loss
-            self.unsup_crit = TOMCriterionUnsup(opt)
+        print('[Unsup Loss] Setting up criterion for mask, rho and reconstruction image')
+        # criterion for mask, attenuation mask and resconstruction loss
+        self.rec_criterion = nn.MSELoss()  # TODO
+        self.mask_criterion = nn.BCELoss()  # TODO
+        self.rho_criterion = nn.MSELoss()  # TODO
 
     def setup_solver(self, opt, in_optim_state):
         optim_state = None
         if opt.solver == 'ADAM':
             print('[Solver] Using Adam solver')
             optim_state = in_optim_state or {
-                'learning_rate': opt.lr,
-                'beta1': opt.beta_1,
-                'beta2': opt.beta_2
+                'lr': opt.lr,
+                'betas': (opt.beta_1, opt.beta_2)
             }
         else:
             logging.warning('Unknown optimization method')
@@ -73,84 +71,80 @@ class Trainer:
         return optim_state
 
     def get_refine_input(self, input, predictor):
-        c_ls = edict()
+        c_ls = {}
         coarse = predictor.forward(input)
         coarse = coarse[-1]
 
-        c_ls.c_loss_flow = self.c_flow_crit.forward(coarse[0], self.flows).c_loss_flow
-        c_ls.flow_epe_c = self.get_flow_error(self.c_flow_crit.epe)
-        c_ls.mask_error_c = self.get_mask_error(coarse, True)
-        c_ls.rho_error_c = self.get_rho_error(coarse, True)
+        c_ls['c_loss_flow'] = self.c_flow_criterion.forward(coarse[0], self.flows).c_loss_flow
+        c_ls['flow_epe_c'] = self.get_flow_error(self.c_flow_criterion.epe)
+        c_ls['mask_error_c'] = self.get_mask_error(coarse, True)
+        c_ls['rho_error_c'] = self.get_rho_error(coarse, True)
         
         refine_in = {input, coarse[0], coarse[1], coarse[2]}
         return refine_in, coarse, c_ls
 
     def train(self, epoch, dataloader, split, *predictor):
         split = split or 'train'
-        self.optim_state.learning_rate = self.learning_rate(epoch)
-        print('Epoch {}, Learning rate {}'.format(epoch, self.optim_state.learning_rate))
+        self.optim_state['lr'] = self.learning_rate(epoch)
+        print('Epoch {}, Learning rate {}'.format(epoch, self.optim_state['lr']))
         num_batches = dataloader.get_num_of_batches()
         print('====================')
         print(self.optim_state)
         print('====================')
         print('Training epoch # {}, totaling mini batches {}'.format(epoch, num_batches))
 
-        self.model.training()
+        self.model.train()
         crit_output = 0.0
-        timer = time.time() # record current time
-        times = edict()
-        times.data_time = 0
-        times.model_time = 0
-        times.loss_time = 0
 
         coarse = None
         
-        loss = [] # loss every 20 iterations
-        losses = [] # loss of entire epochs
-        num_batches = dataloader.get_num_of_batches()
+        loss_iters = {} # loss every 20 iterations
+        loss_epochs = {} # loss of entire epochs
 
-        def f_eval():
-            return crit_output, self.params # TODO - this should be grad params
+        optimizer = torch.optim.Adam(self.params, **(self.optim_state))
 
-        for iter, sample in dataloader.run(split, self.opt.max_image_num):
+        # for iter, sample in dataloader.run(self.opt.max_image_num):
+        for iter, sample in dataloader.run(8):
             input = self.copy_input_data(sample)
-            times.data_time = utility.add_time(times.data_time, timer)
             
             if self.opt.refine:
                 input, coarse, c_ls = self.get_refine_input(input, predictor)
-                utility.dicts_add(loss, c_ls)
+                utility.dicts_add(loss_iters, c_ls)
 
             output = self.model.forward(input)
 
-            flows, pred_images= self.flow_warping_forward(output) # warp input image with flow
-            times.model_time = utility.add_time(times.model_time, timer)
-            
-            unsup_loss, unsup_grads = self.unsup_crit_forward_backward(output, pred_images)
-            # loss and grads for object mask, attenuation mask and restruction loss
-            utility.dicts_add(loss, unsup_loss)
-            warping_grads = self.flow_warping_back(flows, unsup_grads)
+            flows, pred_images = self.flow_warping_forward(output) # warp input image with flow
 
-            # loss and grads for refractive flow field (supervised loss)
-            sup_loss, sup_grads = self.sup_crit_forward_backward(flows)
-            utility.dicts_add(loss, sup_loss)
-            times.loss_time = utility.add_time(times.loss_time, timer)
+            # Zero gradients
+            optimizer.zero_grad()
 
-            # combine all the gradients for the network
-            model_grads = self.get_model_grads(unsup_grads, sup_grads, warping_grads)
-            self.model.zero_grad_parameters()
-            self.model.backward(input, model_grads)
+            for i in range(self.opt.ms_num):
+                mask_loss = self.opt.mask_w * self.mask_criterion(utility.get_mask(output[i][1]), self.multi_masks[i])
+                rho_loss = self.opt.rho_w * self.rho_criterion(output[i][2], self.multi_rhos[i])
+                flow_loss = self.opt.flow_w * self.flow_criterion(output[i][0], self.multi_flows[i])
+                rec_loss = self.opt.img_w * self.rec_criterion(pred_images[i], self.multi_tar_images[i])
+                loss = mask_loss + rho_loss + flow_loss + rec_loss
+                
+                loss_iters['Scale ' + i + ': mask'] = mask_loss
+                loss_iters['Scale ' + i + ': rho'] = rho_loss
+                loss_iters['Scale ' + i + ': flow'] = flow_loss
+                loss_iters['Scale ' + i + ': rec'] = rec_loss
 
-            # update parameters
-            _, tmp_loss = torch.optim.adam(f_eval, self.params, self.optim_state)
-            times.model_time = utility.add_time(times.model_time, timer)
+                # Perform a backward pass
+                loss.backward()
+
+            # Update the weights
+            optimizer.step()
+
+            if (iter % self.opt.train_display) == 0:
+                loss_epochs[iter] = self.display(epoch, iter, num_batches, loss_iters, split)
+                loss_iters = {}
 
             if iter % self.opt.train_save == 0:
                 if self.opt.refine:
                     self.save_refine_results(epoch, iter, output, pred_images, split, 1, coarse)
                 else:
                     self.save_multi_results(epoch, iter, output, pred_images, split)
-                print('Save results time: {}'.format(timer.time()))
-            # timer.reset()
 
     def save_refine_results(self, epoch, iter, output, pred_images, split, num, coarse):
         split = split or 'train'
@@ -250,8 +244,9 @@ class Trainer:
             pred_images= self.warping_module.forward([self.ref_images, flows])
         else:
             for i in range(self.opt.ms_num):
-                flows[i] = output[i][0]
-            pred_images= self.warping_module.forward([self.multi_ref_images, flows])
+                flows.append(output[i][0])
+            
+            pred_images= self.warping_module([self.multi_ref_images, flows])
         return flows, pred_images
 
     def flow_warping_back(self, flows, unsup_grads):
@@ -276,7 +271,7 @@ class Trainer:
         gt_mask = self.masks[0] - 1
         gt_rho = self.rhos[0]
         idx = (is_coarse or not self.opt.refine) and 2 or 1
-        rho = (is_coarse or self.opt.refine) and output[idx][0] or output[-1][idx]
+        rho = (is_coarse or self.opt.refine) and output[idx][0] or output[-1][idx][0]
         self.rho_e = utility.cal_err_rho(gt_rho, rho, True, gt_mask)
         return self.rho_e
 
@@ -294,11 +289,11 @@ class Trainer:
             crit_input.append(output[1])
             crit_target.append(self.rhos)
         else:
+            crit_input = [[] for i in range(self.opt.ms_num)]
+            crit_target = [[] for i in range(self.opt.ms_num)]
             for i in range(self.opt.ms_num):
-                crit_input[i] = []
-                crit_target[i] = []
-                w_m = torch.mul(self.multi_flows[i].narrow(2, 3, 1), 
-                self.multi_rhos[i].expand_as(self.multi_flows[i]))
+                w_m = torch.mul(self.multi_flows[i].narrow(1, 2, 1), 
+                self.multi_rhos[i].unsqueeze(1).expand_as(self.multi_flows[i]))
 
                 crit_input[i].append(torch.mul(pred_images[i], w_m))
                 crit_target[i].append(torch.mul(self.multi_tar_images[i], w_m))
@@ -309,12 +304,12 @@ class Trainer:
                 crit_input[i].append(output[i][2])
                 crit_target[i].append(self.multi_rhos[i])
 
-        ls_iter = edict() # loss in this iteration
-        ls_iter.rho_error = self.get_rho_error(output)
+        ls_iter = {} # loss in this iteration
+        ls_iter['rho_error'] = self.get_rho_error(output, False)
 
         if not self.opt.refine:
             ls_iter = self.unsup_crit.forward(crit_input, crit_target)
-            ls_iter.mask_error = self.get_mask_error(output)
+            ls_iter['mask_error'] = self.get_mask_error(output)
         
         if forward_only:
             return ls_iter
@@ -326,7 +321,7 @@ class Trainer:
         flow_crit_target = self.opt.refine and self.flows or self.multi_flows
 
         ls_iter = self.flow_crit.forward(flows, flow_crit_target)
-        ls_iter.flow_epe = self.get_flow_error(self.flow_crit.epe)
+        ls_iter['flow_epe'] = self.get_flow_error(self.flow_crit.epe)
 
         if forward_only:
             return ls_iter
@@ -352,13 +347,8 @@ class Trainer:
         return model_grads
 
     def test(self, epoch, dataloader, split, *predictor):
-        timer = time.time()
         num_batches = dataloader.get_num_of_batches()
 
-        times = edict()
-        times.data_time = 0
-        times.model_time = 0
-        times.loss_time = 0
         loss = []
         losses = []  # loss in the entire epoch
 
@@ -369,7 +359,6 @@ class Trainer:
 
         for i, sample in enumerate(dataloader.run(split)):
             input = self.copy_input_data(sample)
-            times.data_time = utility.add_time(times.data_time, timer)
 
             if self.opt.refine:
                 input, coarse, c_ls = self.get_refine_input(input, predictor)
@@ -378,20 +367,17 @@ class Trainer:
             output = self.model.forward(input)
 
             flows, pred_images= self.flow_warping_forward(output)
-            time.model_time = utility.add_time(times.model_time, timer)
 
             unsup_loss = self.unsup_crit_forward_backward(output, pred_images, True)
             utility.dicts_add(loss, unsup_loss)
 
             sup_loss = self.sup_crit_forward_backward(flows, True)
             utility.dicts_add(loss, sup_loss)
-            times.loss_time = utility.add_time(times.loss_time, timer)
 
             val_disp = (split == 'val') and (iter % self.opt.val_display) == 0
             if val_disp:
-                losses[iter] = self.display(epoch, iter, num_batches, loss, times, split)
+                losses[iter] = self.display(epoch, iter, num_batches, loss, split)
                 utility.dict_reset(loss)
-                utility.dict_reset(times)
             
             val_save = (split == 'val') and (iter % self.opt.val_save) == 0
 
@@ -404,16 +390,13 @@ class Trainer:
         print(' | Epoch: [{}] Losses summary: {}'.format(epoch, utility.build_loss_string(average_loss)))
         return average_loss
 
-    def display(self, epoch, iter, num_batches, loss, times, split):
-        time_elapsed = utility.time_left(
-            self.opt.start_time, self.opt.n_epochs, num_batches, epoch, iter)
+    def display(self, epoch, iter, num_batches, loss, split):
         interval = (split == 'train') and self.opt.train_display or self.opt.val_display
         loss_average = utility.dict_divide(loss, interval)
 
-        print(' | Epoch ({}): [{}][{}/{}] | {}'.\
-            format(split, epoch, iter, num_batches, time_elapsed))
+        print(' | Epoch ({}): [{}][{}/{}]'.\
+            format(split, epoch, iter, num_batches))
         print(utility.build_loss_string(loss_average))
-        print(utility.build_time_string(times))
         return loss_average
 
     def copy_input_data(self, sample):
@@ -426,34 +409,40 @@ class Trainer:
         elif self.opt.in_bg:
             network_input = torch.cat(self.ref_images, self.tar_images, 1)
         else:
-            network_input = self.tarimages_
+            network_input = self.tar_images
         
         return network_input
 
     def copy_inputs(self, sample):
         # copy the input to a CUDA tensor, if using 1 GPU, or to pinned memory,
         # if using DataParallelTable. The target is always copied to a CUDA tensor
-        self.ref_images= self.ref_images or torch.cuda.FloatTensor()
-        self.tar_images= self.tar_images or torch.cuda.FloatTensor()
-        self.masks = self.masks or torch.cuda.FloatTensor()
-        self.rhos = self.rhos or torch.cuda.FloatTensor()
-        self. flows = self.flows or torch.cuda.FloatTensor()
-        sz = sample.input.size()
-        n, c, h, w = sample.input.size().tolist()
 
-        self.ref_images.resize_(n, 3, h, w).copy_(sample.input[[[],[0, 2],[],[]]])
-        self.tar_images.resize_(n, 3, h, w).copy_(sample.input[[[],[3, 5],[],[]]])
-        self.masks.resize(n, h, w).copy_(sample.masks)
-        self.rhos.resize(n, h, w).copy_(sample.rhos)
-        self.flows.resize(n, 3, h, w).copy_(sample.flows)
-        if self. opt.in_trimap:
+        # self.ref_images = hasattr(self, 'ref_images') and self.ref_images or torch.cuda.FloatTensor()
+        # self.tar_images = hasattr(self, 'tar_images') and self.tar_images or torch.cuda.FloatTensor()
+        # self.masks = hasattr(self, 'masks') and self.masks or torch.cuda.FloatTensor()
+        # self.rhos = hasattr(self, 'rhos') and self.rhos or torch.cuda.FloatTensor()
+        # self.flows = hasattr(self, 'flows') and self.flows or torch.cuda.FloatTensor()
+        self.ref_images = hasattr(self, 'ref_images') and self.ref_images or torch.FloatTensor()
+        self.tar_images = hasattr(self, 'tar_images') and self.tar_images or torch.FloatTensor()
+        self.masks = hasattr(self, 'masks') and self.masks or torch.FloatTensor()
+        self.rhos = hasattr(self, 'rhos') and self.rhos or torch.FloatTensor()
+        self.flows = hasattr(self, 'flows') and self.flows or torch.FloatTensor()
+        n, c, h, w = list(sample['input'].size())
+
+        
+        self.ref_images.resize_(n, 3, h, w).copy_(sample['input'][:,:3,:,:])
+        self.tar_images.resize_(n, 3, h, w).copy_(sample['input'][:,3:,:,:])
+        self.masks.resize_(n, h, w).copy_(sample['masks'])
+        self.rhos.resize_(n, h, w).copy_(sample['rhos'])
+        self.flows.resize_(n, 3, h, w).copy_(sample['flows'])
+        if self.opt.in_trimap:
             self.trimaps = self.trimaps or torch.cuda.FloatTensor()
-            self.trimaps.resize(n, 1, h, w).copy_(sample.trimaps)
+            self.trimaps.resize_(n, 1, h, w).copy_(sample['trimaps'])
 
     def copy_inputs_multi_scale(self, sample):
         multiscale_in = [self.ref_images, self.tar_images, self.rhos, self.masks, self.flows]
 
-        multiscale_out = self.multi_scale_data.forward(multiscale_in)
+        multiscale_out = self.multi_scale_data(multiscale_in)
         self.multi_ref_images = multiscale_out[0]
         self.multi_tar_images = multiscale_out[1]
         self.multi_rhos = multiscale_out[2]
@@ -463,13 +452,13 @@ class Trainer:
         for i in range(len(self.multi_flows)):
             # rescale the loss weight for flow in different scale
             ratio = 2 ** (len(self.multi_flows) - i)
-            self.multi_flows[i] = torch.mul(self.multi_flows[i].narrow(2, 3, 1), ratio)
+            self.multi_flows[i][:, 2, :] *= ratio
 
     def learning_rate(self, epoch):
         # training schedule
 
         ratio = (epoch >= self.opt.lr_decay_start and \
             epoch % self.opt.lr_decay_step == 0) and 0.5 or 1.0
-        return self.optim_state.learning_rate * ratio
+        return self.optim_state['lr'] * ratio
 
     

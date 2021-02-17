@@ -17,8 +17,8 @@ def get_save_dir_name(args):
 
     d_name = d_name + ('_trimap' if args.in_trimap else '')
     d_name = d_name + ('_inBg' if args.in_bg else '')
-    d_name = d_name + ('_retrain' if args.retrain != 'none' else '')
-    d_name = d_name + ('_resume' if args.resume != 'none' else '')
+    d_name = d_name + ('_retrain' if args.retrain != None else '')
+    d_name = d_name + ('_resume' if args.resume != None else '')
     d_name = d_name + ('_valOnly' if args.val_only else '')
 
     if args.debug:
@@ -34,14 +34,14 @@ parser = argparse.ArgumentParser(description='ETOM-Net')
 # dataset options
 parser.add_argument('--dataset', type=str, default='TOMDataset',
                     help='dataset name')
-parser.add_argument('--data_dir', type=str, default='data/datasets/TOM-Net_Synth_Train_178k',
+parser.add_argument('--data_dir', type=str, default='data/datasets/ETOM-Net_Synth_Train',
                     help='training dataset path')
-parser.add_argument('--train_list', type=str, default='train_simple_98k.txt',
+parser.add_argument('--train_list', type=str, default='train_list.txt',
                     help='train list')
-parser.add_argument('--val_list', type=str, default='val_imglist.txt',
+parser.add_argument('--val_list', type=str, default='val_list.txt',
                     help='val list')
-# parser.add_argument('--data_aug', type=bool, default=True,
-#                     help='data augmentation')
+parser.add_argument('--data_aug', type=bool, default=True,
+                    help='data augmentation')
 parser.add_argument('--scale_h', type=int, default=512,
                     help='rescale height')
 parser.add_argument('--scale_w', type=int, default=512,
@@ -100,9 +100,9 @@ parser.add_argument('--refine', action='store_true',
                     help='train refine net')                    
 
 # checkpoint options
-parser.add_argument('--resume', type=str, default='none',
+parser.add_argument('--resume', type=str, default=None,
                     help='reload checkpoint and state')
-parser.add_argument('--retrain', type=str, default='none',
+parser.add_argument('--retrain', type=str, default=None,
                     help='reload checkpoint only')
 parser.add_argument('--suffix', type=str, default='',
                     help='checkpoint suffix')

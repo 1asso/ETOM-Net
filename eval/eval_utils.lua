@@ -16,6 +16,11 @@ function eval_utils.getMask(masks, repeat3)
     pred:add(-1)
     if repeat3 then pred = pred:expand(n,3,h,w) end
     return pred:cuda()
+    -- transpose那一行把(n, 2, h, w)变成(n, h, w, 2)
+    -- 下一行把它变成(n * h * w, 2)
+    -- max(2)这一行取c中的最大值的index, pred是(n * h * w, 1)
+    -- 下一行reshape成(n, 1, h, w)
+    -- 最后输出
 end
 
 function eval_utils.getFinalPred(ref_img, pred_img, pred_mask, pred_rho)

@@ -32,8 +32,8 @@ def init():
 
     ## Configure start points and history
 
-    train_hist = utility.load_t7(check_p, os.path.join(args.resume, 'train_hist.t7'))
-    val_hist = utility.load_t7(check_p, os.path.join(args.resume, 'val_hist.t7'))
+    train_hist = utility.load_t7(check_p, os.path.join(args.resume and args.resume or '', 'train_hist.t7'))
+    val_hist = utility.load_t7(check_p, os.path.join(args.resume and args.resume or '', 'val_hist.t7'))
     start_epoch = check_p.epoch + 1 if check_p else args.start_epoch
 
     def add_history(epoch, history, split):
@@ -46,7 +46,7 @@ def init():
             val_hist = utility.insert_sub_dict(val_hist, history)
             torch.save(os.path.join(args.save, split + '_hist.t7'), val_hist)
         else:
-            logger.error('Unknown split:' + split)
+            logging.error('Unknown split:' + split)
 
     ## Start training
 

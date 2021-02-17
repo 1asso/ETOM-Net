@@ -2,11 +2,10 @@ import os
 import torch
 import torch.nn as nn
 import math
-import easydict as edict
 
 class CheckPoint:
     def latest(opt):
-        if opt.resume == 'none':
+        if opt.resume == None:
             return None, None
         suffix = opt.suffix  # if specify checkpoint epoch number
         if opt.suffix == '':
@@ -24,11 +23,10 @@ class CheckPoint:
 
     def save(opt, model, optim_state, epoch):
         #  create a clean copy on the CPU without modifying the original network
-
-        checkpoint = edict()
-        checkpoint.opt = opt
-        checkpoint.epoch = epoch
-        checkpoint.model = model
+        checkpoint = {}
+        checkpoint['opt'] = opt
+        checkpoint['epoch'] = epoch
+        checkpoint['model'] = model
         if opt.save_new > 0:
             epoch_num = math.floor((epoch - 1) / opt.save_new) * opt.save_new + 1
             suffix = str(epoch_num)
