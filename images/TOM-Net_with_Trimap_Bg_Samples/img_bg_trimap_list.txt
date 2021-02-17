@@ -1,3 +1,0 @@
-dragon.jpg dragon_bg.jpg dragon_trimap.png
-horse.jpg horse_bg.jpg horse_trimap.png
-two_glass.jpg two_glass_bg.jpg two_glass_trimap.png
