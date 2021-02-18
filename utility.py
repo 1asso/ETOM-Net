@@ -171,7 +171,8 @@ class CreateMultiScaleWarping(nn.Module):
         super(CreateMultiScaleWarping, self).__init__()
         self.ms_num = ms_num
 
-    def forward(self, input):
+    def forward(self, _input):
+        input = [[y.clone() for y in x] for x in _input]
         warping_module = []
         for i in range(self.ms_num):
             input_0 = input[0][i] # multi_ref_images
@@ -183,8 +184,8 @@ class CreateMultiScaleWarping(nn.Module):
 
 
 def create_single_warping_module(_input):
-    input = _input[0]
-    grid = grid_generator(_input[1])
+    input = _input[0].clone()
+    grid = grid_generator(_input[1].clone())
     output = F.grid_sample(input, grid, align_corners=True)
     return output
 
@@ -194,12 +195,8 @@ def grid_generator(_flows):
 	height = flows.size(2)
 	width = flows.size(3)
 	
-	if type(flows) is torch.Tensor:
-		base_grid_extend = torch.Tensor(batch, height, width, 2)
-		base_grid = torch.Tensor(height, width, 2)
-	else:
-		base_grid_extend = torch.cuda.Tensor(batch, height, width, 2)
-		base_grid = torch.cuda.Tensor(height, width, 2)
+	base_grid_extend = torch.Tensor(batch, height, width, 2).cuda()
+	base_grid = torch.Tensor(height, width, 2).cuda()
 	
 	for i in range(height):
 		base_grid[i, :, 0] = -1 + (i-1) / (height-1) * 2
@@ -226,17 +223,26 @@ class EPELoss(nn.Module):
     def __init__(self):
         super(EPELoss, self).__init__()
 
-    def forward(self, output, target):
-        return torch.norm(target-output, p=2, dim=1).mean()
+    def forward(self, _pred, _target, _mask):
+        pred = _pred.clone()
+        target = _target.clone()
+        mask = _mask.clone()
+        target = target.narrow(1, 0, 2)
+        mask = mask.expand_as(target)
+        pred = pred * mask
+        target = target * target
+
+        return torch.norm(target-pred, p=2, dim=1).mean()
 
 def get_final_pred(ref_img, pred_img, pred_mask, pred_rho):
     pass
 
-def get_mask(masks):
+def get_mask(_masks):
+    masks = _masks.clone()
     n, c, h, w = list(masks.size())
     m = masks.transpose(1, 3).transpose(1,2)
     m = m.reshape(int(m.numel()/m.size(3)), m.size(3))
-    _, pred = m.max(1)
+    pred, _ = m.max(1)
     pred = pred.reshape(n, 1, h, w)
     return pred
 

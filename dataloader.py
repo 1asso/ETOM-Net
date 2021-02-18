@@ -162,7 +162,7 @@ class DataLoader:
                 batch = torch.FloatTensor(sz, *image_size)
                 masks = torch.FloatTensor(sz, image_size[1], image_size[2]) 
                 rhos = torch.FloatTensor(sz, image_size[1], image_size[2]) 
-                flows = torch.FloatTensor(sz, 3, image_size[1], image_size[2]) 
+                flows = torch.FloatTensor(sz, 3, image_size[1], image_size[2])
                 if self.in_trimap:
                     trimaps = torch.FloatTensor(sz, image_size[1], image_size[2]) 
             

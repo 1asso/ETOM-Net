@@ -8,7 +8,7 @@ class Trainer:
     def __init__(self, model, opt, optim_state):
         print('Initializing Trainer')
         self.opt = opt
-        self.model = model
+        self.model = model.cuda()
         self.warping_module = self.setup_warping(opt) # reconstruct input based on refractive flow field
         self.optim_state = self.setup_solver(opt, optim_state) # check if resume training
         self.setup_criterion(opt)
@@ -17,6 +17,9 @@ class Trainer:
             self.multi_scale_data = self.setup_multi_scale_data(opt)
         
         print('Get model parameters and gradient parameters')
+        
+        for param in model.parameters():
+            param.requires_grad = True
         self.params = model.parameters()
         print('Total number of parameters in TOM-Net: ' + str(sum(p.numel() for p in model.parameters())))
         # variable to store error for the estimated environment matte
@@ -44,18 +47,18 @@ class Trainer:
     def setup_criterion(self, opt):
         print('Setting up criterion')
         print('[Flow Loss] Setting up criterion for flow')
-        self.flow_criterion = utility.EPELoss()
+        self.flow_criterion = utility.EPELoss().cuda()
         if opt.refine:
             # for refinement
             # in refinement stage, an addition flow criterion is initialized
             # to calculate the EPE error for CoarseNet
-            self.c_flow_criterion = utility.EPELoss()  # TODO
+            self.c_flow_criterion = utility.EPELoss().cuda()  # TODO
 
         print('[Unsup Loss] Setting up criterion for mask, rho and reconstruction image')
         # criterion for mask, attenuation mask and resconstruction loss
-        self.rec_criterion = nn.MSELoss()  # TODO
-        self.mask_criterion = nn.BCELoss()  # TODO
-        self.rho_criterion = nn.MSELoss()  # TODO
+        self.rec_criterion = nn.MSELoss().cuda()  # TODO
+        self.mask_criterion = nn.BCEWithLogitsLoss().cuda()  # TODO
+        self.rho_criterion = nn.MSELoss().cuda()  # TODO
 
     def setup_solver(self, opt, in_optim_state):
         optim_state = None
@@ -115,23 +118,27 @@ class Trainer:
 
             flows, pred_images = self.flow_warping_forward(output) # warp input image with flow
 
+            torch.autograd.set_detect_anomaly(True)
+
             # Zero gradients
             optimizer.zero_grad()
-
+            
+        
             for i in range(self.opt.ms_num):
                 mask_loss = self.opt.mask_w * self.mask_criterion(utility.get_mask(output[i][1]), self.multi_masks[i])
                 rho_loss = self.opt.rho_w * self.rho_criterion(output[i][2], self.multi_rhos[i])
-                flow_loss = self.opt.flow_w * self.flow_criterion(output[i][0], self.multi_flows[i])
+                flow_loss = self.opt.flow_w * self.flow_criterion(output[i][0], self.multi_flows[i], self.multi_masks[i])
                 rec_loss = self.opt.img_w * self.rec_criterion(pred_images[i], self.multi_tar_images[i])
                 loss = mask_loss + rho_loss + flow_loss + rec_loss
                 
-                loss_iters['Scale ' + i + ': mask'] = mask_loss
-                loss_iters['Scale ' + i + ': rho'] = rho_loss
-                loss_iters['Scale ' + i + ': flow'] = flow_loss
-                loss_iters['Scale ' + i + ': rec'] = rec_loss
+                loss_iters[f'Scale {i}: mask'] = mask_loss
+                loss_iters[f'Scale {i}: rho'] = rho_loss
+                loss_iters[f'Scale {i}: flow'] = flow_loss
+                loss_iters[f'Scale {i}: rec'] = rec_loss
 
                 # Perform a backward pass
-                loss.backward()
+                
+                loss.backward(retain_graph=True)
 
             # Update the weights
             optimizer.step()
@@ -237,7 +244,8 @@ class Trainer:
             torch.mean(torch.abs(output[scales][0][id]))))
 
     # for image reconstruction loss and image warping
-    def flow_warping_forward(self, output):
+    def flow_warping_forward(self, _output):
+        output = [[y.clone() for y in x] for x in _output]
         flows = []
         if self.opt.refine:
             flows = output[0]
@@ -417,16 +425,11 @@ class Trainer:
         # copy the input to a CUDA tensor, if using 1 GPU, or to pinned memory,
         # if using DataParallelTable. The target is always copied to a CUDA tensor
 
-        # self.ref_images = hasattr(self, 'ref_images') and self.ref_images or torch.cuda.FloatTensor()
-        # self.tar_images = hasattr(self, 'tar_images') and self.tar_images or torch.cuda.FloatTensor()
-        # self.masks = hasattr(self, 'masks') and self.masks or torch.cuda.FloatTensor()
-        # self.rhos = hasattr(self, 'rhos') and self.rhos or torch.cuda.FloatTensor()
-        # self.flows = hasattr(self, 'flows') and self.flows or torch.cuda.FloatTensor()
-        self.ref_images = hasattr(self, 'ref_images') and self.ref_images or torch.FloatTensor()
-        self.tar_images = hasattr(self, 'tar_images') and self.tar_images or torch.FloatTensor()
-        self.masks = hasattr(self, 'masks') and self.masks or torch.FloatTensor()
-        self.rhos = hasattr(self, 'rhos') and self.rhos or torch.FloatTensor()
-        self.flows = hasattr(self, 'flows') and self.flows or torch.FloatTensor()
+        self.ref_images = hasattr(self, 'ref_images') and self.ref_images or torch.cuda.FloatTensor()
+        self.tar_images = hasattr(self, 'tar_images') and self.tar_images or torch.cuda.FloatTensor()
+        self.masks = hasattr(self, 'masks') and self.masks or torch.cuda.FloatTensor()
+        self.rhos = hasattr(self, 'rhos') and self.rhos or torch.cuda.FloatTensor()
+        self.flows = hasattr(self, 'flows') and self.flows or torch.cuda.FloatTensor()
         n, c, h, w = list(sample['input'].size())
 
         
@@ -453,6 +456,9 @@ class Trainer:
             # rescale the loss weight for flow in different scale
             ratio = 2 ** (len(self.multi_flows) - i)
             self.multi_flows[i][:, 2, :] *= ratio
+
+            self.multi_masks[i] = self.multi_masks[i].unsqueeze(1)
+            self.multi_rhos[i] = self.multi_rhos[i].unsqueeze(1)
 
     def learning_rate(self, epoch):
         # training schedule

@@ -15,4 +15,4 @@ def setup(opt, checkpoint):
         model = getattr(models, opt.network_type)
         model = getattr(model, opt.network_type)(opt)
 
-    return model
+    return model.cuda()
