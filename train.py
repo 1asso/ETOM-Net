@@ -104,7 +104,7 @@ class Trainer:
         loss_iters = {} # loss every 20 iterations
         loss_epochs = {} # loss of entire epochs
 
-        optimizer = torch.optim.Adam(self.params, **(self.optim_state))
+        optimizer = torch.optim.Adam(self.model.parameters(), **(self.optim_state))
 
         # for iter, sample in dataloader.run(self.opt.max_image_num):
         for iter, sample in dataloader.run(8):
@@ -113,18 +113,16 @@ class Trainer:
             if self.opt.refine:
                 input, coarse, c_ls = self.get_refine_input(input, predictor)
                 utility.dicts_add(loss_iters, c_ls)
+                
+            torch.autograd.set_detect_anomaly(True)
 
             output = self.model.forward(input)
 
-            flows, pred_images = self.flow_warping_forward(output) # warp input image with flow
+            pred_images = self.flow_warping_forward(output) # warp input image with flow
 
-            torch.autograd.set_detect_anomaly(True)
 
-            # Zero gradients
-            optimizer.zero_grad()
-            
-        
             for i in range(self.opt.ms_num):
+
                 mask_loss = self.opt.mask_w * self.mask_criterion(utility.get_mask(output[i][1]), self.multi_masks[i])
                 rho_loss = self.opt.rho_w * self.rho_criterion(output[i][2], self.multi_rhos[i])
                 flow_loss = self.opt.flow_w * self.flow_criterion(output[i][0], self.multi_flows[i], self.multi_masks[i])
@@ -136,8 +134,10 @@ class Trainer:
                 loss_iters[f'Scale {i}: flow'] = flow_loss
                 loss_iters[f'Scale {i}: rec'] = rec_loss
 
+                # Zero gradients
+                optimizer.zero_grad()
+
                 # Perform a backward pass
-                
                 loss.backward(retain_graph=True)
 
             # Update the weights
@@ -151,7 +151,7 @@ class Trainer:
                 if self.opt.refine:
                     self.save_refine_results(epoch, iter, output, pred_images, split, 1, coarse)
                 else:
-                    self.save_multi_results(epoch, iter, output, pred_images, split)
+                    self.save_multi_results(epoch, iter, output, pred_images, split, 0)
 
     def save_refine_results(self, epoch, iter, output, pred_images, split, num, coarse):
         split = split or 'train'
@@ -194,7 +194,7 @@ class Trainer:
 
         color_flow = utility.flow_to_color(output[0][id])
         pred.append(color_flow)
-        mask = torch.squeeze(utility.get_mask(output[1][[[id]]], True))
+        mask = torch.squeeze(utility.get_mask(output[1][id].unsqueeze(0))).expand(1, 2, output[1].size(2), output[1].size(3))
         pred.append(mask)
         rho = output[2][id].repeat(3, 1, 1)
         pred.append(rho)
@@ -223,7 +223,7 @@ class Trainer:
         return first
 
     def save_multi_results(self, epoch, iter, output, multi_pred_img, split, id):
-        id = id or 1
+        id = id or 0
         scales = self.opt.ms_num
         results = []
 
@@ -231,7 +231,7 @@ class Trainer:
         for val in first_row:
             results.append(val)
         
-        for i in [scales, 1, -1]:
+        for i in range(scales-1, -1, -1):
             pred_img = multi_pred_img[i]
             sub_pred = self.get_predicts(split, id, output[i], pred_img, i)
             for val in sub_pred:
@@ -255,7 +255,7 @@ class Trainer:
                 flows.append(output[i][0])
             
             pred_images= self.warping_module([self.multi_ref_images, flows])
-        return flows, pred_images
+        return pred_images
 
     def flow_warping_back(self, flows, unsup_grads):
         crit_images_grads = []

@@ -17,8 +17,7 @@ class CreateOutput(nn.Module):
         self.conv2 = nn.Conv2d(in_channels, 1, k, step, pad)
 
 
-    def forward(self, _input):
-        input = [x.clone() for x in _input]
+    def forward(self, input):
         # All tensors in the input list must either have the same shape
         # (except in the concatenating dimension) or be empty.
         # input: [4 * Tensor(batch_size, 128, feature_map(h, w))]
@@ -28,7 +27,7 @@ class CreateOutput(nn.Module):
         # output: Tensor(batch_size, 4 * 128, feature_map(h, w))
         
         flow = self.conv1(input).cuda()
-        flow = self.th(flow)
+        flow = self.th(flow).clone()
         flow *= self.ratio
 
         mask = self.conv1(input).cuda()
@@ -45,8 +44,7 @@ class NormalizeOutput(nn.Module):
         self.up = nn.Upsample(scale_factor=2)
         self.sm = nn.Softmax(dim=1) ## TODO
 
-    def forward(self, _input):
-        input = [x.clone() for x in _input]
+    def forward(self, input):
         # input should be a list: [flow, mask, rho]
 
         input[0] *= self.ratio
@@ -69,8 +67,7 @@ class Encoder(nn.Module):
         
         self.encoder = nn.Sequential(od).cuda()
 
-    def forward(self, _input):
-        input = _input.clone()
+    def forward(self, input):
         return self.encoder(input)
 
 
@@ -89,12 +86,10 @@ class Decoder(nn.Module):
         
         self.decoder = nn.Sequential(od).cuda()
 
-    def forward(self, _input):
-        input = [x.clone() for x in _input]
+    def forward(self, input):
         if not self.is_bottom:
             input = torch.cat(input, dim=1)
-        else:
-            input = torch.stack(input)
+            
         return self.decoder(input)
 
 class CoarseNet(nn.Module):
@@ -143,8 +138,7 @@ class CoarseNet(nn.Module):
             Encoder(c_6, c_6, 3, 1, self.use_BN)
         ).cuda()
         
-    def forward(self, _input):
-        input = _input.clone()
+    def forward(self, input):
         c_0 = c_1 = 16
         c_2 = 32
         c_3 = 64

@@ -75,14 +75,14 @@ def save_results_compact(save_name, results, width_num):
 
 # str utilities
 
-def build_loss_string(losses, no_total):
+def build_loss_string(losses):
     total_loss = 0
     s = ''
     for k, v in losses.items():
         s += '{}: {}, '.format(k, v)
         total_loss += v
-    if not no_total:
-        s += ' [Total Loss: {}]'.format(total_loss) 
+
+    s += ' [Total Loss: {}]'.format(total_loss) 
     return s
 
 # flow utilities
@@ -145,7 +145,7 @@ def dict_of_dict_average(dict_of_dict):
         result[k] /= n
 
 def dict_divide(t, n):
-    return {k: v / n for k, v in t.iteritems()}
+    return {k: v / n for k, v in t.items()}
 
 # model utilities
 
@@ -171,8 +171,7 @@ class CreateMultiScaleWarping(nn.Module):
         super(CreateMultiScaleWarping, self).__init__()
         self.ms_num = ms_num
 
-    def forward(self, _input):
-        input = [[y.clone() for y in x] for x in _input]
+    def forward(self, input):
         warping_module = []
         for i in range(self.ms_num):
             input_0 = input[0][i] # multi_ref_images
@@ -184,13 +183,12 @@ class CreateMultiScaleWarping(nn.Module):
 
 
 def create_single_warping_module(_input):
-    input = _input[0].clone()
-    grid = grid_generator(_input[1].clone())
+    input = _input[0]
+    grid = grid_generator(_input[1])
     output = F.grid_sample(input, grid, align_corners=True)
     return output
 
-def grid_generator(_flows):
-	flows = _flows.clone()
+def grid_generator(flows):
 	batch = flows.size(0)
 	height = flows.size(2)
 	width = flows.size(3)
@@ -223,10 +221,7 @@ class EPELoss(nn.Module):
     def __init__(self):
         super(EPELoss, self).__init__()
 
-    def forward(self, _pred, _target, _mask):
-        pred = _pred.clone()
-        target = _target.clone()
-        mask = _mask.clone()
+    def forward(self, pred, target, mask):
         target = target.narrow(1, 0, 2)
         mask = mask.expand_as(target)
         pred = pred * mask
@@ -237,8 +232,7 @@ class EPELoss(nn.Module):
 def get_final_pred(ref_img, pred_img, pred_mask, pred_rho):
     pass
 
-def get_mask(_masks):
-    masks = _masks.clone()
+def get_mask(masks):
     n, c, h, w = list(masks.size())
     m = masks.transpose(1, 3).transpose(1,2)
     m = m.reshape(int(m.numel()/m.size(3)), m.size(3))

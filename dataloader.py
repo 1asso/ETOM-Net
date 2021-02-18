@@ -142,7 +142,7 @@ class ETOMDataset:
 
         sample = {}
         sample['input'] = images
-        sample['mask'] = mask + 1
+        sample['mask'] = mask
         sample['rho'] = rho
         sample['flow'] = flow
 
