@@ -9,6 +9,8 @@ import time
 import struct
 import torch.nn as nn
 import torch.nn.functional as F
+import math
+from pathlib import Path
 
 TAG = 202021.25
 
@@ -24,7 +26,6 @@ def load_t7(condition, f_name):
 
 def resize_tensor(input_tensors, h, w):
     final_output = None
-    input_tensors = torch.squeeze(input_tensors, 1)
 
     for img in input_tensors:
         img_PIL = transforms.ToPILImage()(img)
@@ -34,7 +35,6 @@ def resize_tensor(input_tensors, h, w):
             final_output = img_PIL
         else:
             final_output = torch.cat((final_output, img_PIL), 0)
-    final_output = torch.unsqueeze(final_output, 1)
     return final_output
 
 def plot_results_compact(results, log_dir, split):
@@ -49,29 +49,35 @@ def save_results_compact(save_name, results, width_num):
     big_img = None
     fix_h = fix_w = None
     h = w = None
-    for _, v in results.items():
-        if v:
+    
+    for v in results:
+        if not type(v) == bool:
             img = v.float()
             if img.dim() > 3 or img.dim() < 2:
                 logging.error('Dim of image must be 2 or 3')
-            if not big_img:
-                c, h, w = img.size().tolist()
+            if big_img == None:
+                c, h, w = list(img.size())
                 fix_h = h
                 fix_w = w
                 big_img = torch.Tensor(3, h_n*h + (h_n-1)*_int,
-                                       w_n*w + (w_n-1)*_int).fill_(0)
+                                        w_n*w + (w_n-1)*_int).fill_(0)
             if img.size(0) != 3:
-                img = torch.repeat(img, 3, 1, 1)
+                img = img.unsqueeze(0)
+                img = img.repeat(3, 1, 1)
             if img.size(1) != fix_h or img.size(2) != fix_w:
                 img = resize_tensor(img, fix_h, fix_w)
 
             h_idx = math.floor((idx-1) / w_n) + 1
             w_idx = (idx-1) % w_n + 1
-            h_start = 1 + (h_idx-1) * (h+_int)
-            w_start = 1 + (w_idx-1) * (w+_int)
-            big_img[:, h_start:h_start+h-1, w_start:w_start+w-1] = img
+            h_start = (h_idx-1) * (h+_int)
+            w_start = (w_idx-1) * (w+_int)
+            # print(img.size(), big_img.size())
+            big_img[:, h_start:h_start+h, w_start:w_start+w] = img
         idx += 1
-    save_image(big_img, save_image)
+    path = Path(save_name)
+    if not os.path.exists(path.parent):
+        os.makedirs(path.parent)
+    save_image(big_img, save_name)
 
 # str utilities
 
@@ -88,7 +94,40 @@ def build_loss_string(losses):
 # flow utilities
 
 def flow_to_color(flow):
-    pass
+    flow = flow.float()
+    if flow.size(0) == 3:
+        f_val = flow[2, :, :].ge(0.1).float()
+    else:
+        f_val = torch.ones(flow.size(1), flow.size(2)).cuda()
+    
+    f_du = flow[1, :, :].clone()
+    f_dv = flow[0, :, :].clone()
+    u_max = torch.max(torch.abs(f_du.masked_select(f_val.bool())))
+    v_max = torch.max(torch.abs(f_dv.masked_select(f_val.bool())))
+    f_max = torch.max(u_max, v_max)
+
+    f_mag = torch.sqrt(torch.pow(f_du, 2) + torch.pow(f_dv, 2))
+    f_dir = torch.atan2(f_dv, f_du)
+    img = flow_map(f_mag, f_dir, f_val, f_max, 8)
+    
+    return img
+
+def flow_map(f_mag, f_dir, f_val, f_max, n):
+    img_size = f_mag.size()
+    img = torch.zeros(3, img_size[0], img_size[1]).cuda()
+
+    img[0, :, :] = (f_dir + math.pi) / (2 * math.pi)
+    img[1, :, :] = torch.div(f_mag, (f_mag.size(1) * 0.5)).clamp(0, 1)
+    img[2, :, :] = 1
+
+    img[1:2, :, :] = torch.minimum(torch.maximum(img[1:2, :, :], torch.zeros(img_size).cuda()), torch.ones(img_size).cuda())
+
+    img[0, :, :] = img[0, :, :] * f_val
+    img[1, :, :] = img[1, :, :] * f_val
+    img[2, :, :] = img[2, :, :] * f_val
+    
+    return img
+
 
 def load_short_flow_file(filename):
     f = open(filename, 'rb')
@@ -131,18 +170,22 @@ def dicts_add(dict, dict_to_add):
         dict[k] = dict[k] + v
 
 def insert_sub_dict(_dict, sub_dict):
-    _dict.update(sub_dict)
+    if _dict:
+        _dict.update(sub_dict)
+    else:
+        _dict = sub_dict.copy()
 
 def dict_of_dict_average(dict_of_dict):
     result = {}
     for k1, v1 in dict_of_dict.items():
         for k2, v2 in v1.items():
-            if result[k2] == None:
+            if not k2 in result.keys():
                 result[k2] = 0
             result[k2] = result[k2] + v2
     n = len(dict_of_dict)
     for k, v in result.items():
         result[k] /= n
+    return result
 
 def dict_divide(t, n):
     return {k: v / n for k, v in t.items()}
@@ -225,12 +268,13 @@ class EPELoss(nn.Module):
         target = target.narrow(1, 0, 2)
         mask = mask.expand_as(target)
         pred = pred * mask
-        target = target * target
+        target = target * mask
 
-        return torch.norm(target-pred, p=2, dim=1).mean()
+        return torch.norm(target-pred, dim=1).mean()
 
 def get_final_pred(ref_img, pred_img, pred_mask, pred_rho):
-    pass
+    final_pred_img = torch.mul(1 - pred_mask, ref_img) + torch.mul(pred_mask, torch.mul(pred_img, pred_rho))
+    return final_pred_img
 
 def get_mask(masks):
     n, c, h, w = list(masks.size())
@@ -239,9 +283,3 @@ def get_mask(masks):
     pred, _ = m.max(1)
     pred = pred.reshape(n, 1, h, w)
     return pred
-
-def cal_IoU_mask(gt_mask, pred_mask):
-    pass
-
-def cal_err_rho(gt_rho, pred_rho, roi, gt_mask):
-    pass

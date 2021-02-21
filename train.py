@@ -3,6 +3,7 @@ import utility
 import logging
 import os
 import torch.nn as nn
+from torch.cuda.amp import GradScaler, autocast
 
 class Trainer:
     def __init__(self, model, opt, optim_state):
@@ -17,15 +18,18 @@ class Trainer:
             self.multi_scale_data = self.setup_multi_scale_data(opt)
         
         print('Get model parameters and gradient parameters')
-        
-        for param in model.parameters():
-            param.requires_grad = True
         self.params = model.parameters()
         print('Total number of parameters in TOM-Net: ' + str(sum(p.numel() for p in model.parameters())))
         # variable to store error for the estimated environment matte
         self.flow_e = 0
         self.mask_e = 0
         self.rho_e = 0
+
+        self.ref_images = None
+        self.tar_images = None
+        self.rhos = None
+        self.masks = None
+        self.flows = None
     
     def setup_multi_scale_data(self, opt):
         print('[Multi Scale] Setting up multi scale data')
@@ -87,6 +91,11 @@ class Trainer:
         return refine_in, coarse, c_ls
 
     def train(self, epoch, dataloader, split, *predictor):
+        torch.cuda.empty_cache()
+        
+        gradient_accumulations = 2
+        scaler = GradScaler()
+
         split = split or 'train'
         self.optim_state['lr'] = self.learning_rate(epoch)
         print('Epoch {}, Learning rate {}'.format(epoch, self.optim_state['lr']))
@@ -101,57 +110,87 @@ class Trainer:
 
         coarse = None
         
-        loss_iters = {} # loss every 20 iterations
-        loss_epochs = {} # loss of entire epochs
+        loss_iter = {} # loss every 20 iterations
+        loss_epoch = {} # loss of entire epochs
+
+        for i in range(self.opt.ms_num):
+            loss_iter[f'Scale {i}: mask'] = 0
+            loss_iter[f'Scale {i}: rho'] = 0
+            loss_iter[f'Scale {i}: flow'] = 0
+            loss_iter[f'Scale {i}: rec'] = 0
 
         optimizer = torch.optim.Adam(self.model.parameters(), **(self.optim_state))
 
-        # for iter, sample in dataloader.run(self.opt.max_image_num):
-        for iter, sample in dataloader.run(8):
-            input = self.copy_input_data(sample)
+        # Zero gradients
+        optimizer.zero_grad()
+
+        for iter, sample in dataloader.run(self.opt.max_image_num):
+            print(f"---\niter:{iter}\n---")
+            
+            input = self.copy_input_data(sample.get())
+            
+            torch.cuda.empty_cache()
             
             if self.opt.refine:
                 input, coarse, c_ls = self.get_refine_input(input, predictor)
-                utility.dicts_add(loss_iters, c_ls)
+                utility.dicts_add(loss_iter, c_ls)
                 
             torch.autograd.set_detect_anomaly(True)
 
             output = self.model.forward(input)
-
             pred_images = self.flow_warping_forward(output) # warp input image with flow
-
 
             for i in range(self.opt.ms_num):
 
+                
                 mask_loss = self.opt.mask_w * self.mask_criterion(utility.get_mask(output[i][1]), self.multi_masks[i])
                 rho_loss = self.opt.rho_w * self.rho_criterion(output[i][2], self.multi_rhos[i])
                 flow_loss = self.opt.flow_w * self.flow_criterion(output[i][0], self.multi_flows[i], self.multi_masks[i])
                 rec_loss = self.opt.img_w * self.rec_criterion(pred_images[i], self.multi_tar_images[i])
                 loss = mask_loss + rho_loss + flow_loss + rec_loss
                 
-                loss_iters[f'Scale {i}: mask'] = mask_loss
-                loss_iters[f'Scale {i}: rho'] = rho_loss
-                loss_iters[f'Scale {i}: flow'] = flow_loss
-                loss_iters[f'Scale {i}: rec'] = rec_loss
-
-                # Zero gradients
-                optimizer.zero_grad()
+                loss_iter[f'Scale {i}: mask'] += mask_loss.item()
+                loss_iter[f'Scale {i}: rho'] += rho_loss.item()
+                loss_iter[f'Scale {i}: flow'] += flow_loss.item()
+                loss_iter[f'Scale {i}: rec'] += rec_loss.item()
 
                 # Perform a backward pass
-                loss.backward(retain_graph=True)
+                if i == self.opt.ms_num-1:
+                    (loss / gradient_accumulations).backward()
+                else:
+                    (loss / gradient_accumulations).backward(retain_graph=True)
+
+                del mask_loss
+                del rho_loss
+                del flow_loss
+                del rec_loss
+                del loss
 
             # Update the weights
-            optimizer.step()
+            if (iter + 1) % gradient_accumulations == 0:
+                optimizer.step()
+                # Zero gradients
+                self.model.zero_grad()
 
-            if (iter % self.opt.train_display) == 0:
-                loss_epochs[iter] = self.display(epoch, iter, num_batches, loss_iters, split)
-                loss_iters = {}
+            if (iter+1) % self.opt.train_display == 0:
+                loss_epoch[iter] = self.display(epoch, iter, num_batches, loss_iter, split)
+                for i in range(self.opt.ms_num):
+                    loss_iter[f'Scale {i}: mask'] = 0
+                    loss_iter[f'Scale {i}: rho'] = 0
+                    loss_iter[f'Scale {i}: flow'] = 0
+                    loss_iter[f'Scale {i}: rec'] = 0
 
-            if iter % self.opt.train_save == 0:
+            if (iter+1) % self.opt.train_save == 0:
                 if self.opt.refine:
                     self.save_refine_results(epoch, iter, output, pred_images, split, 1, coarse)
                 else:
                     self.save_multi_results(epoch, iter, output, pred_images, split, 0)
+        
+        average_loss = utility.dict_of_dict_average(loss_epoch)
+        print('\n\n | Epoch: [{}] Losses summary: {}'.format(epoch, utility.build_loss_string(average_loss)))
+        for name, params in self.model.named_parameters():
+	        print('-->name:', name, '   -->weight', torch.mean(params.data), '   -->grad_value:', torch.mean(params.grad))
+        return average_loss
 
     def save_refine_results(self, epoch, iter, output, pred_images, split, num, coarse):
         split = split or 'train'
@@ -179,13 +218,13 @@ class Trainer:
 
     def get_save_name(self, log_dir, split, epoch, iter, id):
         f_path = '{}/{}/Images/'.format(log_dir, split)
-        f_names = '{}_{}_{}'.format(epoch, iter, id)
-        f_names = '{}_EPE_{}_IoU_{}_Rho_{}'.format(f_names, self.flow_e, self.mask_e, self.rho_e) 
-        return os.path.join(f_path, f_names, '.jpg')
+        f_names = 'epoch:{}_iter:{}_id:{}'.format(epoch, iter, id)
+        # f_names = '{}_EPE_{}_IoU_{}_Rho_{}'.format(f_names, self.flow_e, self.mask_e, self.rho_e) 
+        return os.path.join(f_path, f_names + '.png')
 
     def get_predicts(self, split, id, output, pred_img, m_scale):
         pred = [] 
-        if m_scale:
+        if m_scale != None:
             gt_color_flow = utility.flow_to_color(self.multi_flows[m_scale][id])
         else:
             gt_color_flow = utility.flow_to_color(self.flows[id])
@@ -194,12 +233,12 @@ class Trainer:
 
         color_flow = utility.flow_to_color(output[0][id])
         pred.append(color_flow)
-        mask = torch.squeeze(utility.get_mask(output[1][id].unsqueeze(0))).expand(1, 2, output[1].size(2), output[1].size(3))
+        mask = torch.squeeze(utility.get_mask(output[1][id].unsqueeze(0))).expand(3, output[1].size(2), output[1].size(3))
         pred.append(mask)
         rho = output[2][id].repeat(3, 1, 1)
         pred.append(rho)
 
-        if m_scale:
+        if m_scale != None:
             final_img = utility.get_final_pred(self.multi_ref_images[m_scale][id], pred_img[id], mask, rho)
             first_img = self.multi_tar_images[m_scale][id]
         else:
@@ -208,6 +247,7 @@ class Trainer:
 
         pred.insert(0, first_img)
         pred.insert(1, final_img)
+        return pred
 
     def get_first_row(self, split, id):
         first = []
@@ -218,7 +258,7 @@ class Trainer:
             first.append(self.trimaps[id] / 2.0)
         else:
             first.append(False)
-        first.append(self.masks[id] - 1)
+        first.append(self.masks[id])
         first.append(self.rhos[id])
         return first
 
@@ -239,13 +279,12 @@ class Trainer:
         
         save_name = self.get_save_name(self.opt.log_dir, split, epoch, iter, id)
         utility.save_results_compact(save_name, results, 6)
-        print('Flow magnitude: Mas {}, Min {}, Mean {}'.format(
-            torch.max(output[scales][0][id]), torch.min(output[scales][0][id]), 
-            torch.mean(torch.abs(output[scales][0][id]))))
+        print('Flow magnitude: Max {}, Min {}, Mean {}'.format(
+            torch.max(output[scales-1][0][id]), torch.min(output[scales-1][0][id]), 
+            torch.mean(torch.abs(output[scales-1][0][id]))))
 
     # for image reconstruction loss and image warping
-    def flow_warping_forward(self, _output):
-        output = [[y.clone() for y in x] for x in _output]
+    def flow_warping_forward(self, output):
         flows = []
         if self.opt.refine:
             flows = output[0]
@@ -424,12 +463,17 @@ class Trainer:
     def copy_inputs(self, sample):
         # copy the input to a CUDA tensor, if using 1 GPU, or to pinned memory,
         # if using DataParallelTable. The target is always copied to a CUDA tensor
+        del self.ref_images
+        del self.tar_images
+        del self.masks
+        del self.rhos
+        del self.flows
 
-        self.ref_images = hasattr(self, 'ref_images') and self.ref_images or torch.cuda.FloatTensor()
-        self.tar_images = hasattr(self, 'tar_images') and self.tar_images or torch.cuda.FloatTensor()
-        self.masks = hasattr(self, 'masks') and self.masks or torch.cuda.FloatTensor()
-        self.rhos = hasattr(self, 'rhos') and self.rhos or torch.cuda.FloatTensor()
-        self.flows = hasattr(self, 'flows') and self.flows or torch.cuda.FloatTensor()
+        self.ref_images = torch.cuda.FloatTensor()
+        self.tar_images = torch.cuda.FloatTensor()
+        self.masks = torch.cuda.FloatTensor()
+        self.rhos = torch.cuda.FloatTensor()
+        self.flows = torch.cuda.FloatTensor()
         n, c, h, w = list(sample['input'].size())
 
         

@@ -12,8 +12,8 @@ class CheckPoint:
             f = open(os.path.join(opt.resume, 'latest'), 'r')
             suffix = f.read()
         
-        checkpoint_path = os.path.join(opt.resume, 'checkpoint', suffix, '.t7')
-        optim_state_path = os.path.join(opt.resume, 'optim_state', suffix, '.t7')
+        checkpoint_path = os.path.join(opt.resume, 'checkpoint', suffix, '.pt')
+        optim_state_path = os.path.join(opt.resume, 'optim_state', suffix, '.pt')
 
         print('=> [Resume] Loading checkpoint: ' + checkpoint_path)
         print('=> [Resume] Loading Optim state: ' + optim_state_path)
@@ -32,9 +32,12 @@ class CheckPoint:
             suffix = str(epoch_num)
         else:
             suffix = ''
+
+        if not os.path.exists(opt.save):
+            os.makedirs(opt.save)
         
-        torch.save(os.path.join(opt.save, 'checkpoint', suffix, '.t7'), checkpoint)
-        torch.save(os.path.join('optim_state', suffix, '.t7'), optim_state)
+        torch.save(checkpoint, os.path.join(opt.save, 'checkpoint' + suffix + '.pt'))
+        torch.save(optim_state, os.path.join(opt.save, 'optim_state' + suffix + '.pt'))
 
         f = open(os.path.join(opt.save, 'latest'), 'w')
         f.write(suffix)

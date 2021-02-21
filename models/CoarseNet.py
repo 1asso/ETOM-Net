@@ -89,7 +89,7 @@ class Decoder(nn.Module):
     def forward(self, input):
         if not self.is_bottom:
             input = torch.cat(input, dim=1)
-            
+
         return self.decoder(input)
 
 class CoarseNet(nn.Module):

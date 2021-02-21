@@ -34,19 +34,20 @@ def init():
 
     train_hist = utility.load_t7(check_p, os.path.join(args.resume and args.resume or '', 'train_hist.t7'))
     val_hist = utility.load_t7(check_p, os.path.join(args.resume and args.resume or '', 'val_hist.t7'))
-    start_epoch = check_p.epoch + 1 if check_p else args.start_epoch
+    start_epoch = check_p.epoch if check_p else args.start_epoch
 
-    def add_history(epoch, history, split):
+    def add_history(epoch, loss, split):
+        history = {epoch: loss}
         if split == 'train':
             nonlocal train_hist
             train_hist = utility.insert_sub_dict(train_hist, history)
-            torch.save(os.path.join(args.save, split + '_hist.t7'), train_hist)
-        if split == 'val':
+            torch.save(train_hist, os.path.join(args.save, split + '_hist.t7'))
+        elif split == 'val':
             nonlocal val_hist
             val_hist = utility.insert_sub_dict(val_hist, history)
-            torch.save(os.path.join(args.save, split + '_hist.t7'), val_hist)
+            torch.save(val_hist, os.path.join(args.save, split + '_hist.t7'))
         else:
-            logging.error('Unknown split:' + split)
+            logging.error('Unknown split: ' + split)
 
     ## Start training
 
@@ -56,17 +57,20 @@ def init():
         train_loss = trainer.train(epoch, train_loader, 'train')
 
         # save checkpoint
-        if epoch % args.save_interval == 0:
-            print('**** Epoch {} saving checkpoint ****'.format(epoch))
+        if (epoch+1) % args.save_interval == 0:
+            print('\n**** Epoch {} saving checkpoint ****\n'.format(epoch))
             CheckPoint.save(args, model, trainer.optim_state, epoch)
+        
+
 
         # save and plot results for training stage
         add_history(epoch, train_loss, 'train')
         # utility.plot_results_compact(train_hist, args.log_dir, 'train')
 
         # validation on synthetic data
-        if epoch % args.val_interval == 0:
-            val_results = trainer.test(epoch, val_loader, 'val')
+        if (epoch+1) % args.val_interval == 0:
+            #val_results = trainer.test(epoch, val_loader, 'val')
+            val_results = 0
             add_history(epoch, val_results, 'val')
             # utility.plot_results_compact(val_hist, args.log_dir, 'val')
 

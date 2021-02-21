@@ -34,7 +34,7 @@ parser = argparse.ArgumentParser(description='ETOM-Net')
 # dataset options
 parser.add_argument('--dataset', type=str, default='TOMDataset',
                     help='dataset name')
-parser.add_argument('--data_dir', type=str, default='data/datasets/ETOM-Net_Synth_Train',
+parser.add_argument('--data_dir', type=str, default='../datasets/ETOM-Net_Synth_Train',
                     help='training dataset path')
 parser.add_argument('--train_list', type=str, default='train_list.txt',
                     help='train list')
@@ -42,9 +42,9 @@ parser.add_argument('--val_list', type=str, default='val_list.txt',
                     help='val list')
 parser.add_argument('--data_aug', type=bool, default=True,
                     help='data augmentation')
-parser.add_argument('--scale_h', type=int, default=512,
+parser.add_argument('--scale_h', type=int, default=1024,
                     help='rescale height')
-parser.add_argument('--scale_w', type=int, default=512,
+parser.add_argument('--scale_w', type=int, default=1024,
                     help='rescale width')
 parser.add_argument('--crop_h', type=int, default=448,
                     help='crop height')
@@ -66,17 +66,17 @@ parser.add_argument('--processes', type=int, default=8,
                     help='number of data loading processes')
 
 # training options
-parser.add_argument('--start_epoch', type=int, default=1,
+parser.add_argument('--start_epoch', type=int, default=0,
                     help='set start epoch for restart')
 parser.add_argument('--n_epochs', type=int, default=20,
                     help='number of total epochs to run')
-parser.add_argument('--batch_size', type=int, default=4,
+parser.add_argument('--batch_size', type=int, default=2,
                     help='mini-batch size')
-parser.add_argument('--lr', type=float, default=1e-4,
+parser.add_argument('--lr', type=float, default=0.0001,
                     help='initial learning rate')
 parser.add_argument('--lr_decay_start', type=int, default=10,
                     help='number of epochs when lr start to decay')
-parser.add_argument('--lr_decay_step', type=int, default=5,
+parser.add_argument('--lr_decay_step', type=int, default=2,
                     help='step for the lr decay')
 parser.add_argument('--solver', type=str, default='ADAM',
                     help='solver used(Adam only)')
@@ -122,11 +122,11 @@ parser.add_argument('--rho_w', type=int, default=1,
                     help='attenuation mask weight')
 
 # display options
-parser.add_argument('--train_display', type=int, default=20,
+parser.add_argument('--train_display', type=int, default=10,
                     help='iteration to display train loss')
-parser.add_argument('--train_save', type=int, default=300,
+parser.add_argument('--train_save', type=int, default=10,
                     help='iteration to save train results')
-parser.add_argument('--val_interval', type=int, default=1,
+parser.add_argument('--val_interval', type=int, default=20,
                     help='iteration to do validation')
 parser.add_argument('--val_display', type=int, default=5,
                     help='iteration to display val loss')

@@ -223,7 +223,7 @@ class DataLoader:
                 idx += self.batch_size
             
             for i in range(len(tasks)):
-                results.append((i, pool.apply(self.process, [tasks[i],])))
+                results.append((i, pool.apply_async(self.process, [tasks[i],])))
             pool.close()
             pool.join()
             
