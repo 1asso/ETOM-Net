@@ -205,7 +205,7 @@ class CreateMultiScaleData(nn.Module):
             result[1].append(nn.AvgPool2d((scale, scale))(input[1]))
             result[2].append(nn.AvgPool2d((scale, scale))(input[2]))
             result[3].append(nn.MaxPool2d((scale, scale))(input[3]))
-            result[4].append(nn.AvgPool2d((scale, scale))(input[4]) * (1/scale))
+            result[4].append(nn.AvgPool2d((scale, scale))(input[4]).mul(1/scale))
 
         return result
 
@@ -219,6 +219,7 @@ class CreateMultiScaleWarping(nn.Module):
         for i in range(self.ms_num):
             input_0 = input[0][i] # multi_ref_images
             input_1 = input[1][i] # flows
+
             single_warping = create_single_warping_module([input_0, input_1])
             warping_module.append(single_warping)
 
@@ -232,30 +233,33 @@ def create_single_warping_module(_input):
     return output
 
 def grid_generator(flows):
-	batch = flows.size(0)
-	height = flows.size(2)
-	width = flows.size(3)
+    batch = flows.size(0)
+    height = flows.size(2)
+    width = flows.size(3)
+
+    base_grid_extend = torch.Tensor(batch, height, width, 2).cuda()
+    base_grid = torch.Tensor(height, width, 2).cuda()
+
+    for i in range(height):
+        base_grid[i, :, 0] = -1 + (i-1) / (height-1) * 2
+
+    for i in range(width):
+        base_grid[:, i, 1] = -1 + (i-1) / (width-1) * 2
+
+    for i in range(batch):
+        base_grid_extend[i, :, :] = base_grid.clone()
+
+    if flows.size(1) == 2:
+        flows = flows.transpose(1, 2).transpose(2, 3)
+    
+    #torch.set_printoptions(profile="full")
+    #with open('sample.txt', 'w') as f:
+    #    f.write(str(flows))
+    #torch.set_printoptions(profile="default")
+    #exit()
 	
-	base_grid_extend = torch.Tensor(batch, height, width, 2).cuda()
-	base_grid = torch.Tensor(height, width, 2).cuda()
-	
-	for i in range(height):
-		base_grid[i, :, 0] = -1 + (i-1) / (height-1) * 2
-		
-	for i in range(width):
-		base_grid[:, i, 1] = -1 + (i-1) / (width-1) * 2
-	
-	for i in range(batch):
-		base_grid_extend[i, :, :] = base_grid.clone()
-		
-	if flows.size(1) == 2:
-		flows = flows.transpose(1, 2).transpose(2, 3)
-		
-	flows[:, :, :, 0] /= height / 2
-	flows[:, :, :, 1] /= width / 2
-	
-	output = base_grid_extend.add(flows)
-	return output
+    output = base_grid_extend.add(flows)
+    return output
 
 
 # evaluation utilities
@@ -280,6 +284,6 @@ def get_mask(masks):
     n, c, h, w = list(masks.size())
     m = masks.transpose(1, 3).transpose(1,2)
     m = m.reshape(int(m.numel()/m.size(3)), m.size(3))
-    pred, _ = m.max(1)
+    _, pred = m.max(1)
     pred = pred.reshape(n, 1, h, w)
     return pred

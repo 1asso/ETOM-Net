@@ -13,16 +13,54 @@ from torch.distributions.uniform import Uniform
 import cv2
 import numpy as np
 import matplotlib.pyplot as plt
+from torch.utils.data import DataLoader
+from option import args
 
 
 def create(opt):
-    dataset = ETOMDataset(opt, 'train')
-    loaders_0 = DataLoader(dataset, opt, 'train')
-    dataset = ETOMDataset(opt, 'val')
-    loaders_1 = DataLoader(dataset, opt, 'val')
-    return loaders_0, loaders_1
+    dataset_0 = ETOMDataset(opt, 'train')
+    loader_0 = DataLoader(dataset_0, batch_size=opt.batch_size,
+                        shuffle=True, num_workers=8, collate_fn=collate)
+    dataset_1 = ETOMDataset(opt, 'val')
+    loader_1 = DataLoader(dataset_1, batch_size=opt.batch_size,
+                        shuffle=True, num_workers=8, collate_fn=collate)
+    return loader_0, loader_1
 
-class ETOMDataset:
+def collate(sample):
+    sz = len(sample)
+    batch = masks = rhos = flows = trimaps = image_size = None
+    for i, idx in enumerate(sample):
+        s = sample[i]
+
+        input = s['input']
+        if batch is None:
+            image_size = input.size()
+            batch = torch.FloatTensor(sz, *image_size)
+            masks = torch.FloatTensor(sz, image_size[1], image_size[2]) 
+            rhos = torch.FloatTensor(sz, image_size[1], image_size[2]) 
+            flows = torch.FloatTensor(sz, 3, image_size[1], image_size[2])
+            if args.in_trimap:
+                trimaps = torch.FloatTensor(sz, image_size[1], image_size[2]) 
+        
+        batch[i] = input.clone()
+        masks[i] = s['mask'].clone()
+        rhos[i] = s['rho'].clone()
+        flows[i] = s['flow'].clone()
+        if args.in_trimap:
+            trimaps[i] = s['trimap'].clone()
+        
+    batch_sample = {}
+    batch_sample['input'] = batch
+    batch_sample['masks'] = masks
+    batch_sample['rhos'] = rhos
+    batch_sample['flows'] = flows
+
+    if args.in_trimap:
+        batch_sample['trimaps'] = trimaps
+    
+    return batch_sample
+
+class ETOMDataset(torch.utils.data.Dataset):
     def __init__(self, opt, split):
         self.opt = opt
         self.split = split
@@ -84,7 +122,7 @@ class ETOMDataset:
         add_on= torch.ones(1, flow.size(1), flow.size(2)) # size: [1, h, w]
         flow = torch.cat([flow, add_on], 0) # size: [3, h, w]
 
-        print(path_base)
+        # print(path_base)
         # torch.set_printoptions(profile="full")
         # with open('sample.txt', 'w') as f:
         #     f.write(str(flow))
@@ -108,26 +146,10 @@ class ETOMDataset:
 
         if need_scale:
             pass
-            # size = [sc_h, sc_w]
-            # image_ref = F.interpolate(image_ref, size, mode='bicubic')
-            # image_tar = F.interpolate(image_tar, size, mode='bicubic')
-            # mask = F.interpolate(mask, size, mode='bicubic')
-            # rho = F.interpolate(rho, size, mode='bicubic')
-            # flow = F.interpolate(flow, size, mode='bicubic')
-            # flow[1] *= (sc_w / in_w)
-            # flow[0] *= (sc_h / in_h)
         
         if need_aug:
             final = image_tar
             images = torch.cat([image_ref, final], 0)
-        #     # increase the intensity of pixels where total internal reflection happens
-        #     dark = torch.lt(rho, 0.7)
-        #     dark3 = dark.view(1, sc_h, sc_w).expand(3, sc_h, sc_w)
-        #     image_tar[dark3] = image_tar[dark3] + Uniform(0.01, 0.2).sample()
-
-        #     # get the regions of boundary and total internal reflection
-        #     k_e = torch.rand(1, 1) * 2 + 1
-        #     mask_roi = ... 
         else:
             images = torch.cat([image_ref, image_tar], 0)
 
@@ -147,84 +169,3 @@ class ETOMDataset:
         sample['flow'] = flow
 
         return sample
-
-
-class DataLoader:
-    def process(self, indices):
-        sz = len(indices)
-        batch = masks = rhos = flows = trimaps = image_size = None
-        for i, idx in enumerate(indices.tolist()):
-            sample = self.dataset[idx]
-
-            input = sample['input']
-            if batch is None:
-                image_size = input.size()
-                batch = torch.FloatTensor(sz, *image_size)
-                masks = torch.FloatTensor(sz, image_size[1], image_size[2]) 
-                rhos = torch.FloatTensor(sz, image_size[1], image_size[2]) 
-                flows = torch.FloatTensor(sz, 3, image_size[1], image_size[2])
-                if self.in_trimap:
-                    trimaps = torch.FloatTensor(sz, image_size[1], image_size[2]) 
-            
-            batch[i] = input.clone()
-            masks[i] = sample['mask'].clone()
-            rhos[i] = sample['rho'].clone()
-            flows[i] = sample['flow'].clone()
-            if self.in_trimap:
-                trimaps[i] = sample['trimap'].clone()
-            
-        batch_sample = {}
-        batch_sample['input'] = batch
-        batch_sample['masks'] = masks
-        batch_sample['rhos'] = rhos
-        batch_sample['flows'] = flows
-
-        if self.in_trimap:
-            batch_sample['trimaps'] = trimaps
-            
-        return batch_sample
-
-    def __init__(self, dataset, opt, split):
-        self.opt = opt
-        self.dataset = dataset
-        self.split = split
-
-        self.manual_seed = opt.manual_seed
-        # torch.set_num_threads(1)
-
-        self.size = len(dataset)
-        self.batch_size = opt.batch_size
-        self.in_trimap = opt.in_trimap
-
-    def get_num_of_batches(self):
-        return math.ceil(self.size / self.batch_size)
-
-    def get_size(self):
-        return self.size
-
-    def run(self, max_num):
-        processes = self.opt.processes
-        size = (max_num and max_num > 0) and min(max_num, self.size) or self.size
-        perm = (self.split == 'val') and torch.arange(size) or torch.randperm(size)
-        print('[dataloader run on split: {} with size: {} / {}'.format(self.split, size, self.size))
-
-        idx = 0
-        results = []
-
-        print('Creating pool with {} processes\n'.format(processes))
-
-        with mp.Pool(processes) as pool:
-            tasks = []
-            while idx < size:
-                if self.manual_seed != 0:
-                    torch.manual_seed(self.manual_seed + idx)
-                indices = torch.narrow(perm, 0, idx, min(self.batch_size, size-idx))
-                tasks.append(indices)
-                idx += self.batch_size
-            
-            for i in range(len(tasks)):
-                results.append((i, pool.apply_async(self.process, [tasks[i],])))
-            pool.close()
-            pool.join()
-            
-            return results

@@ -30,6 +30,7 @@ class CreateOutput(nn.Module):
         flow = self.th(flow).clone()
         flow *= self.ratio
 
+
         mask = self.conv1(input).cuda()
 
         rho = self.conv2(input).cuda()
@@ -42,7 +43,7 @@ class NormalizeOutput(nn.Module):
         super(NormalizeOutput, self).__init__()
         self.ratio = 2.0 ** (scale-1) / w
         self.up = nn.Upsample(scale_factor=2)
-        self.sm = nn.Softmax(dim=1) ## TODO
+        self.sm = nn.LogSoftmax(dim=1) ## TODO
 
     def forward(self, input):
         # input should be a list: [flow, mask, rho]

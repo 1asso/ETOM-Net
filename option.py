@@ -46,9 +46,9 @@ parser.add_argument('--scale_h', type=int, default=1024,
                     help='rescale height')
 parser.add_argument('--scale_w', type=int, default=1024,
                     help='rescale width')
-parser.add_argument('--crop_h', type=int, default=448,
+parser.add_argument('--crop_h', type=int, default=1024,
                     help='crop height')
-parser.add_argument('--crop_w', type=int, default=448,
+parser.add_argument('--crop_w', type=int, default=1024,
                     help='crop width')
 parser.add_argument('--noise', type=float, default=0.05,
                     help='noise level')
@@ -72,7 +72,7 @@ parser.add_argument('--n_epochs', type=int, default=20,
                     help='number of total epochs to run')
 parser.add_argument('--batch_size', type=int, default=2,
                     help='mini-batch size')
-parser.add_argument('--lr', type=float, default=0.0001,
+parser.add_argument('--lr', type=float, default=0.1,
                     help='initial learning rate')
 parser.add_argument('--lr_decay_start', type=int, default=10,
                     help='number of epochs when lr start to decay')
@@ -116,21 +116,21 @@ parser.add_argument('--flow_w', type=float, default=0.01,
                     help='flow weight')
 parser.add_argument('--img_w', type=int, default=1,
                     help='image reconstruction weight')
-parser.add_argument('--mask_w', type=float, default=0.1,
+parser.add_argument('--mask_w', type=float, default=1,
                     help='mask weight')
 parser.add_argument('--rho_w', type=int, default=1,
                     help='attenuation mask weight')
 
 # display options
-parser.add_argument('--train_display', type=int, default=10,
+parser.add_argument('--train_display', type=int, default=20,
                     help='iteration to display train loss')
-parser.add_argument('--train_save', type=int, default=10,
+parser.add_argument('--train_save', type=int, default=40,
                     help='iteration to save train results')
 parser.add_argument('--val_interval', type=int, default=20,
                     help='iteration to do validation')
-parser.add_argument('--val_display', type=int, default=5,
+parser.add_argument('--val_display', type=int, default=20,
                     help='iteration to display val loss')
-parser.add_argument('--val_save', type=int, default=5,
+parser.add_argument('--val_save', type=int, default=20,
                     help='iteration to save val results')
 parser.add_argument('--val_only', action='store_true',
                     help='run on validation set only')

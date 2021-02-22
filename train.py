@@ -61,7 +61,7 @@ class Trainer:
         print('[Unsup Loss] Setting up criterion for mask, rho and reconstruction image')
         # criterion for mask, attenuation mask and resconstruction loss
         self.rec_criterion = nn.MSELoss().cuda()  # TODO
-        self.mask_criterion = nn.BCEWithLogitsLoss().cuda()  # TODO
+        self.mask_criterion = nn.CrossEntropyLoss().cuda()  # TODO
         self.rho_criterion = nn.MSELoss().cuda()  # TODO
 
     def setup_solver(self, opt, in_optim_state):
@@ -93,17 +93,16 @@ class Trainer:
     def train(self, epoch, dataloader, split, *predictor):
         torch.cuda.empty_cache()
         
-        gradient_accumulations = 2
-        scaler = GradScaler()
+        gradient_accumulations = 8
 
         split = split or 'train'
         self.optim_state['lr'] = self.learning_rate(epoch)
-        print('Epoch {}, Learning rate {}'.format(epoch, self.optim_state['lr']))
-        num_batches = dataloader.get_num_of_batches()
+        print('Epoch {}, Learning rate {}'.format(epoch+1, self.optim_state['lr']))
+        num_batches = len(dataloader)
         print('====================')
         print(self.optim_state)
         print('====================')
-        print('Training epoch # {}, totaling mini batches {}'.format(epoch, num_batches))
+        print('Training epoch # {}, totaling mini batches {}'.format(epoch+1, num_batches))
 
         self.model.train()
         crit_output = 0.0
@@ -124,10 +123,9 @@ class Trainer:
         # Zero gradients
         optimizer.zero_grad()
 
-        for iter, sample in dataloader.run(self.opt.max_image_num):
-            print(f"---\niter:{iter}\n---")
+        for iter, sample in enumerate(dataloader):
             
-            input = self.copy_input_data(sample.get())
+            input = self.copy_input_data(sample)
             
             torch.cuda.empty_cache()
             
@@ -142,14 +140,13 @@ class Trainer:
 
             for i in range(self.opt.ms_num):
 
-                
-                mask_loss = self.opt.mask_w * self.mask_criterion(utility.get_mask(output[i][1]), self.multi_masks[i])
-                rho_loss = self.opt.rho_w * self.rho_criterion(output[i][2], self.multi_rhos[i])
-                flow_loss = self.opt.flow_w * self.flow_criterion(output[i][0], self.multi_flows[i], self.multi_masks[i])
-                rec_loss = self.opt.img_w * self.rec_criterion(pred_images[i], self.multi_tar_images[i])
+                mask_loss = self.opt.mask_w * self.mask_criterion(output[i][1], self.multi_masks[i].squeeze(1).long()) * (1 / 2 ** (self.opt.ms_num - i - 1))
+                rho_loss = self.opt.rho_w * self.rho_criterion(output[i][2], self.multi_rhos[i]) * (1 / 2 ** (self.opt.ms_num - i - 1))
+                flow_loss = self.opt.flow_w * self.flow_criterion(output[i][0], self.multi_flows[i], self.multi_masks[i]) * (1 / 2 ** (self.opt.ms_num - i - 1))
+                rec_loss = self.opt.img_w * self.rec_criterion(pred_images[i], self.multi_tar_images[i]) * (1 / 2 ** (self.opt.ms_num - i - 1))
                 loss = mask_loss + rho_loss + flow_loss + rec_loss
                 
-                loss_iter[f'Scale {i}: mask'] += mask_loss.item()
+                loss_iter[f'Scale {i}: mask'] += mask_loss.item() 
                 loss_iter[f'Scale {i}: rho'] += rho_loss.item()
                 loss_iter[f'Scale {i}: flow'] += flow_loss.item()
                 loss_iter[f'Scale {i}: rec'] += rec_loss.item()
@@ -173,7 +170,7 @@ class Trainer:
                 self.model.zero_grad()
 
             if (iter+1) % self.opt.train_display == 0:
-                loss_epoch[iter] = self.display(epoch, iter, num_batches, loss_iter, split)
+                loss_epoch[iter] = self.display(epoch+1, iter+1, num_batches, loss_iter, split)
                 for i in range(self.opt.ms_num):
                     loss_iter[f'Scale {i}: mask'] = 0
                     loss_iter[f'Scale {i}: rho'] = 0
@@ -182,14 +179,14 @@ class Trainer:
 
             if (iter+1) % self.opt.train_save == 0:
                 if self.opt.refine:
-                    self.save_refine_results(epoch, iter, output, pred_images, split, 1, coarse)
+                    self.save_refine_results(epoch+1, iter+1, output, pred_images, split, 1, coarse)
                 else:
-                    self.save_multi_results(epoch, iter, output, pred_images, split, 0)
+                    self.save_multi_results(epoch+1, iter+1, output, pred_images, split, 0)
         
         average_loss = utility.dict_of_dict_average(loss_epoch)
-        print('\n\n | Epoch: [{}] Losses summary: {}'.format(epoch, utility.build_loss_string(average_loss)))
         for name, params in self.model.named_parameters():
-	        print('-->name:', name, '   -->weight', torch.mean(params.data), '   -->grad_value:', torch.mean(params.grad))
+	        print('-->name:', name, '   -->weight', torch.mean(params.data))
+        print('\n\n | Epoch: [{}] Losses summary: {}'.format(epoch+1, utility.build_loss_string(average_loss)))
         return average_loss
 
     def save_refine_results(self, epoch, iter, output, pred_images, split, num, coarse):
@@ -279,7 +276,7 @@ class Trainer:
         
         save_name = self.get_save_name(self.opt.log_dir, split, epoch, iter, id)
         utility.save_results_compact(save_name, results, 6)
-        print('Flow magnitude: Max {}, Min {}, Mean {}'.format(
+        print('\n\n | Flow magnitude: Max {}, Min {}, Mean {}'.format(
             torch.max(output[scales-1][0][id]), torch.min(output[scales-1][0][id]), 
             torch.mean(torch.abs(output[scales-1][0][id]))))
 
@@ -434,14 +431,14 @@ class Trainer:
                 self.save_multi_results(epoch, iter, output, pred_images, split)
             
         average_loss = utility.dict_of_dict_average(losses)
-        print(' | Epoch: [{}] Losses summary: {}'.format(epoch, utility.build_loss_string(average_loss)))
+        print('\n\n | Epoch: [{}] Losses summary: {}'.format(epoch, utility.build_loss_string(average_loss)))
         return average_loss
 
     def display(self, epoch, iter, num_batches, loss, split):
         interval = (split == 'train') and self.opt.train_display or self.opt.val_display
         loss_average = utility.dict_divide(loss, interval)
 
-        print(' | Epoch ({}): [{}][{}/{}]'.\
+        print('\n\n | Epoch ({}): [{}][{}/{}]'.\
             format(split, epoch, iter, num_batches))
         print(utility.build_loss_string(loss_average))
         return loss_average
@@ -474,6 +471,7 @@ class Trainer:
         self.masks = torch.cuda.FloatTensor()
         self.rhos = torch.cuda.FloatTensor()
         self.flows = torch.cuda.FloatTensor()
+
         n, c, h, w = list(sample['input'].size())
 
         
@@ -496,9 +494,9 @@ class Trainer:
         self.multi_masks = multiscale_out[3]
         self.multi_flows = multiscale_out[4]
 
-        for i in range(len(self.multi_flows)):
+        for i in range(self.opt.ms_num):
             # rescale the loss weight for flow in different scale
-            ratio = 2 ** (len(self.multi_flows) - i)
+            ratio = 2 ** (self.opt.ms_num - i - 1)
             self.multi_flows[i][:, 2, :] *= ratio
 
             self.multi_masks[i] = self.multi_masks[i].unsqueeze(1)

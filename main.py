@@ -58,20 +58,20 @@ def init():
 
         # save checkpoint
         if (epoch+1) % args.save_interval == 0:
-            print('\n**** Epoch {} saving checkpoint ****\n'.format(epoch))
-            CheckPoint.save(args, model, trainer.optim_state, epoch)
+            print('\n**** Epoch {} saving checkpoint ****\n'.format(epoch+1))
+            CheckPoint.save(args, model, trainer.optim_state, epoch+1)
         
 
 
         # save and plot results for training stage
-        add_history(epoch, train_loss, 'train')
+        add_history(epoch+1, train_loss, 'train')
         # utility.plot_results_compact(train_hist, args.log_dir, 'train')
 
         # validation on synthetic data
         if (epoch+1) % args.val_interval == 0:
             #val_results = trainer.test(epoch, val_loader, 'val')
             val_results = 0
-            add_history(epoch, val_results, 'val')
+            add_history(epoch+1, val_results, 'val')
             # utility.plot_results_compact(val_hist, args.log_dir, 'val')
 
 if __name__ == '__main__':
