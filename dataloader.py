@@ -96,8 +96,8 @@ class ETOMDataset(torch.utils.data.Dataset):
 
         path = self.image_info.iloc[idx, 0]
         path_base = os.path.splitext(path)[0]
-        path_ref = path_base + '_ref.jpg'  # TODO
-        path_tar = path_base + '.jpg'  # TODO
+        path_ref = path_base + '_ref.jpg'
+        path_tar = path_base + '.jpg'
         path_mask = path_base + '_mask.png'
         path_rho = path_base + '_rho.png'
         path_flow = path_base + '_flow.flo'
@@ -115,7 +115,7 @@ class ETOMDataset(torch.utils.data.Dataset):
         rho = Image.open(os.path.join(self.dir, path_rho))
         rho = TF.to_tensor(rho.convert('L')) # size: [1, h, w]
 
-        flow = utility.load_short_flow_file(os.path.join(self.dir, path_flow)) # size: [2, h, w]
+        flow = utility.load_flow(os.path.join(self.dir, path_flow)) # size: [2, h, w]
         add_on= torch.ones(1, flow.size(1), flow.size(2)) # size: [1, h, w]
         flow = torch.cat([flow, add_on], 0) # size: [3, h, w]
 

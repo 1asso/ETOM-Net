@@ -27,8 +27,8 @@ if args.val_only:
 
 ### configure start points and history
 
-train_hist = utility.load_t7(check_p, os.path.join(args.resume and args.resume or '', 'train_hist.t7'))
-val_hist = utility.load_t7(check_p, os.path.join(args.resume and args.resume or '', 'val_hist.t7'))
+train_hist = utility.load_data(check_p, os.path.join(args.resume and args.resume or '', 'train_hist.t7'))
+val_hist = utility.load_data(check_p, os.path.join(args.resume and args.resume or '', 'val_hist.t7'))
 start_epoch = check_p.epoch if check_p else args.start_epoch
 
 

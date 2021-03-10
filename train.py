@@ -14,10 +14,10 @@ class Trainer:
         print('Initializing Trainer')
         self.opt = opt
         self.model = model.cuda()
-        self.warping_module = self.setup_warping() # reconstruct input based on refractive flow field
+        self.warping_module = self.setup_warping_module() # reconstruct input based on refractive flow field
         self.optim_state = self.setup_solver(optim_state) # check if resume training
-        self.setup_criterion()
-        self.multi_scale_data = self.setup_multi_scale_data()
+        self.setup_criterions()
+        self.multi_scale_data = self.setup_ms_data_module()
         
         print('Total number of parameters in ETOM-Net: ' + str(sum(p.numel() for p in self.model.parameters())))
 
@@ -27,18 +27,18 @@ class Trainer:
         self.masks = None
         self.flows = None
     
-    def setup_multi_scale_data(self) -> utility.CreateMultiScaleData:
-        print('[Multi Scale] Setting up multi scale data')
+    def setup_ms_data_module(self) -> utility.CreateMultiScaleData:
+        print('[Multi Scale] Setting up multi scale data module')
         # generate multi-scale ground truth during training
-        ms_data = utility.CreateMultiScaleData(self.opt.ms_num)
-        return ms_data
+        ms_data_module = utility.CreateMultiScaleData(self.opt.ms_num)
+        return ms_data_module
 
-    def setup_warping(self) -> utility.CreateMultiScaleWarping:
+    def setup_warping_module(self) -> utility.CreateMultiScaleWarping:
         print('[Multi Scale] Setting up multi scale warping')
         warping_module = utility.CreateMultiScaleWarping(self.opt.ms_num)
         return warping_module
 
-    def setup_criterion(self) -> None:
+    def setup_criterions(self) -> None:
         print('Setting up criterion')
         print('[Flow Loss] Setting up criterion for flow')
         self.flow_criterion = utility.EPELoss
@@ -67,7 +67,7 @@ class Trainer:
         gradient_accumulations = 1
 
         split = split or 'train'
-        self.optim_state['lr'] = self.learning_rate(epoch)
+        self.optim_state['lr'] = self.update_lr(epoch)
         print('Epoch {}, Learning rate {}'.format(epoch+1, self.optim_state['lr']))
         num_batches = len(dataloader)
         print('====================')
@@ -92,7 +92,7 @@ class Trainer:
         optimizer.zero_grad()
 
         for iter, sample in enumerate(dataloader):
-            input = self.copy_input_data(sample)
+            input = self.setup_inputs(sample)
             
             torch.cuda.empty_cache()
             torch.autograd.set_detect_anomaly(True)
@@ -137,7 +137,7 @@ class Trainer:
                     loss_iter[f'Scale {i}: rec'] = 0
 
             if (iter+1) % self.opt.train_save == 0:
-                self.save_multi_results(epoch+1, iter+1, output, pred_images, split, 0)
+                self.save_ms_results(epoch+1, iter+1, output, pred_images, split, 0)
         
         average_loss = utility.dict_of_dict_average(loss_epoch)
         #for name, params in self.model.named_parameters():
@@ -145,7 +145,7 @@ class Trainer:
         print('\n\n | Epoch: [{}] Losses summary: {}'.format(epoch+1, utility.build_loss_string(average_loss)))
         return average_loss
 
-    def get_save_name(self, log_dir: str, split: str, epoch: int, iter: int, id: int) -> str:
+    def get_saving_name(self, log_dir: str, split: str, epoch: int, iter: int, id: int) -> str:
         f_path = f'{log_dir}/{split}/Images/'
         f_names = f'epoch:{epoch}_iter:{iter}_id:{id}'
         return os.path.join(f_path, f_names + '.png')
@@ -183,7 +183,7 @@ class Trainer:
         first.append(self.rhos[id])
         return first
 
-    def save_multi_results(
+    def save_ms_results(
         self, 
         epoch: int, 
         iter: int, 
@@ -205,8 +205,8 @@ class Trainer:
             for val in sub_pred:
                 results.append(val)
         
-        save_name = self.get_save_name(self.opt.log_dir, split, epoch, iter, id)
-        utility.save_results_compact(save_name, results, 6)
+        save_name = self.get_saving_name(self.opt.log_dir, split, epoch, iter, id)
+        utility.save_compact_results(save_name, results, 6)
         print('\n\n | Flow magnitude: Max {}, Min {}, Mean {}'.format(
             torch.max(output[scales-1][0][id]), torch.min(output[scales-1][0][id]), 
             torch.mean(torch.abs(output[scales-1][0][id]))))
@@ -230,7 +230,7 @@ class Trainer:
         self.model.evaluate()
 
         for i, sample in enumerate(dataloader.run(split)):
-            input = self.copy_input_data(sample)
+            input = self.setup_inputs(sample)
 
             output = self.model.forward(input)
 
@@ -250,7 +250,7 @@ class Trainer:
             val_save = (split == 'val') and (iter % self.opt.val_save) == 0
 
             if val_save:
-                self.save_multi_results(epoch, iter, output, pred_images, split)
+                self.save_ms_results(epoch, iter, output, pred_images, split)
             
         average_loss = utility.dict_of_dict_average(losses)
         print('\n\n | Epoch: [{}] Losses summary: {}'.format(epoch, utility.build_loss_string(average_loss)))
@@ -265,9 +265,9 @@ class Trainer:
         print(utility.build_loss_string(average_loss))
         return average_loss
 
-    def copy_input_data(self, sample: dict) -> Tensor:
+    def setup_inputs(self, sample: dict) -> Tensor:
         self.copy_inputs(sample)
-        self.copy_inputs_multi_scale(sample)
+        self.generate_ms_inputs(sample)
 
         network_input = self.tar_images
         
@@ -294,7 +294,7 @@ class Trainer:
         self.rhos.resize_(n, h, w).copy_(sample['rhos'])
         self.flows.resize_(n, 3, h, w).copy_(sample['flows'])
 
-    def copy_inputs_multi_scale(self, sample: dict) -> None:
+    def generate_ms_inputs(self, sample: dict) -> None:
         multiscale_in = [self.ref_images, self.tar_images, self.rhos, self.masks, self.flows]
 
         multiscale_out = self.multi_scale_data(multiscale_in)
@@ -312,7 +312,7 @@ class Trainer:
             self.multi_masks[i] = self.multi_masks[i].unsqueeze(1)
             self.multi_rhos[i] = self.multi_rhos[i].unsqueeze(1)
 
-    def learning_rate(self, epoch: int) -> float:
+    def update_lr(self, epoch: int) -> float:
         ratio = (epoch >= self.opt.lr_decay_start and \
             epoch % self.opt.lr_decay_step == 0) and 0.5 or 1.0
         return self.optim_state['lr'] * ratio

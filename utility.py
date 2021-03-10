@@ -20,7 +20,7 @@ TAG = 202021.25
 ### IO utilities
 
 
-def load_t7(condition: bool, f_name: str) -> "model":
+def load_data(condition: bool, f_name: str) -> "model":
     t7_file = None
     if condition:
         if os.path.isfile(f_name):
@@ -29,10 +29,10 @@ def load_t7(condition: bool, f_name: str) -> "model":
     return t7_file
 
 
-def resize_tensor(input_tensors: Tensor, h: int, w: int) -> Tensor:
+def resize_tensor(input_tensor: Tensor, h: int, w: int) -> Tensor:
     final_output = None
 
-    for img in input_tensors:
+    for img in input_tensor:
         img_PIL = transforms.ToPILImage()(img)
         img_PIL = transforms.Resize([h, w])(img_PIL)
         img_PIL = transforms.ToTensor()(img_PIL)
@@ -43,7 +43,7 @@ def resize_tensor(input_tensors: Tensor, h: int, w: int) -> Tensor:
     return final_output
 
 
-def save_results_compact(save_name: str, results: List[Tensor], width_num: int) -> None:
+def save_compact_results(save_name: str, results: List[Tensor], width_num: int) -> None:
     _int = 5
     num = len(results)
     w_n = width_num or 3
@@ -113,12 +113,12 @@ def flow_to_color(flow: Tensor) -> Tensor:
 
     f_mag = torch.sqrt(torch.pow(f_du, 2) + torch.pow(f_dv, 2))
     f_dir = torch.atan2(f_dv, f_du)
-    img = flow_map(f_mag, f_dir, f_val)
+    img = flow_mapping(f_mag, f_dir, f_val)
     
     return img
 
 
-def flow_map(f_mag: Tensor, f_dir: Tensor, f_val: Tensor) -> Tensor:
+def flow_mapping(f_mag: Tensor, f_dir: Tensor, f_val: Tensor) -> Tensor:
     img_size = f_mag.size()
     img = torch.zeros(3, img_size[0], img_size[1]).cuda()
 
@@ -137,7 +137,7 @@ def flow_map(f_mag: Tensor, f_dir: Tensor, f_val: Tensor) -> Tensor:
     return img
 
 
-def load_short_flow_file(filename: str) -> Tensor:
+def load_flow(filename: str) -> Tensor:
     f = open(filename, 'rb')
     tag = struct.unpack('f', f.read(4))[0]
     assert tag == TAG, 'Unable to read ' + filename + ' because of wrong tag'
@@ -159,7 +159,7 @@ def load_short_flow_file(filename: str) -> Tensor:
     return flow
 
 
-def save_short_flow_file(filename: str, flow: Tensor) -> None:
+def save_flow(filename: str, flow: Tensor) -> None:
     flow = flow.short().permute(1, 2, 0).clone()
     f = open(filename, 'wb')
     f.write(struct.pack('f', TAG))
@@ -237,13 +237,13 @@ class CreateMultiScaleWarping(nn.Module):
             input_0 = x[0][i] # multi_ref_images
             input_1 = x[1][i] # flows
 
-            single_warping = create_single_warping_module([input_0, input_1])
+            single_warping = create_single_warping([input_0, input_1])
             warping_module.append(single_warping)
 
         return warping_module
 
 
-def create_single_warping_module(input: List[Tensor]) -> Tensor:
+def create_single_warping(input: List[Tensor]) -> Tensor:
     ref = input[0]
     flo = input[1]
     grid = grid_generator(flo)

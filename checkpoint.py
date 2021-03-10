@@ -11,7 +11,7 @@ class CheckPoint:
     def latest(opt: Namespace) -> Tuple["model", "state"]:
         if opt.resume == None:
             return None, None
-        suffix = opt.suffix  # if specify checkpoint epoch number
+        suffix = opt.suffix 
         if opt.suffix == '':
             f = open(os.path.join(opt.resume, 'latest'), 'r')
             suffix = f.read()
@@ -26,7 +26,6 @@ class CheckPoint:
         return checkpoint, optim_state
 
     def save(opt: Namespace, model: CoarseNet, optim_state: dict, epoch: int) -> None:
-        #  create a clean copy on the CPU without modifying the original network
         checkpoint = {}
         checkpoint['opt'] = opt
         checkpoint['epoch'] = epoch

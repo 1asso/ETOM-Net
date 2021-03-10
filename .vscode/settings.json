@@ -20,6 +20,5 @@
         "val imglist"
     ],
     "python.linting.enabled": false,
-    // "keyboard.dispatch": "keyCode"
     "python.analysis.extraPath": ["./sources"],
 }
