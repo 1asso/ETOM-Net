@@ -34,27 +34,27 @@ parser = argparse.ArgumentParser(description='ETOM-Net')
 # dataset options
 parser.add_argument('--dataset', type=str, default='TOMDataset',
                     help='dataset name')
-parser.add_argument('--data_dir', type=str, default='../datasets/ETOM-Net_Synth_Train',
+parser.add_argument('--data_dir', type=str, default='../TOM-Net_Synth_Train_178k',
                     help='training dataset path')
-parser.add_argument('--train_list', type=str, default='train_list.txt',
+parser.add_argument('--train_list', type=str, default='train_simple_98k.txt',
                     help='train list')
-parser.add_argument('--val_list', type=str, default='val_list.txt',
+parser.add_argument('--val_list', type=str, default='val_imglist.txt',
                     help='val list')
 parser.add_argument('--data_aug', type=bool, default=True,
                     help='data augmentation')
-parser.add_argument('--scale_h', type=int, default=1024,
+parser.add_argument('--scale_h', type=int, default=512,
                     help='rescale height')
-parser.add_argument('--scale_w', type=int, default=1024,
+parser.add_argument('--scale_w', type=int, default=512,
                     help='rescale width')
-parser.add_argument('--crop_h', type=int, default=1024,
+parser.add_argument('--crop_h', type=int, default=512,
                     help='crop height')
-parser.add_argument('--crop_w', type=int, default=1024,
+parser.add_argument('--crop_w', type=int, default=512,
                     help='crop width')
 parser.add_argument('--noise', type=float, default=0.05,
                     help='noise level')
 parser.add_argument('--rot_ang', type=float, default=0.3,
                     help='angle for rotating data')
-parser.add_argument('--max_image_num', type=int, default=-1,
+parser.add_argument('--max_image_num', type=int, default=16000,
                     help='>0 for max number')
 
 # device options
@@ -70,13 +70,13 @@ parser.add_argument('--start_epoch', type=int, default=0,
                     help='set start epoch for restart')
 parser.add_argument('--n_epochs', type=int, default=20,
                     help='number of total epochs to run')
-parser.add_argument('--batch_size', type=int, default=2,
+parser.add_argument('--batch_size', type=int, default=16,
                     help='mini-batch size')
-parser.add_argument('--lr', type=float, default=0.1,
+parser.add_argument('--lr', type=float, default=0.001,
                     help='initial learning rate')
 parser.add_argument('--lr_decay_start', type=int, default=10,
                     help='number of epochs when lr start to decay')
-parser.add_argument('--lr_decay_step', type=int, default=2,
+parser.add_argument('--lr_decay_step', type=int, default=5,
                     help='step for the lr decay')
 parser.add_argument('--solver', type=str, default='ADAM',
                     help='solver used(Adam only)')
@@ -112,11 +112,11 @@ parser.add_argument('--save_new', type=int, default=1,
                     help='epochs to save new checkpoint')
 
 # loss options
-parser.add_argument('--flow_w', type=float, default=0.01,
+parser.add_argument('--flow_w', type=float, default=0.001,
                     help='flow weight')
 parser.add_argument('--img_w', type=int, default=1,
                     help='image reconstruction weight')
-parser.add_argument('--mask_w', type=float, default=1,
+parser.add_argument('--mask_w', type=float, default=0.1,
                     help='mask weight')
 parser.add_argument('--rho_w', type=int, default=1,
                     help='attenuation mask weight')
@@ -124,7 +124,7 @@ parser.add_argument('--rho_w', type=int, default=1,
 # display options
 parser.add_argument('--train_display', type=int, default=20,
                     help='iteration to display train loss')
-parser.add_argument('--train_save', type=int, default=40,
+parser.add_argument('--train_save', type=int, default=200,
                     help='iteration to save train results')
 parser.add_argument('--val_interval', type=int, default=20,
                     help='iteration to do validation')

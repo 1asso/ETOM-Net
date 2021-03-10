@@ -66,12 +66,12 @@ class ETOMDataset(torch.utils.data.Dataset):
         self.split = split
         if split == 'train':
             self.image_list = os.path.join(opt.data_dir, opt.train_list)
-            self.dir = os.path.join(opt.data_dir, 'train/images')
+            self.dir = os.path.join(opt.data_dir, 'train/Images')
         elif split == 'val':
             self.image_list = os.path.join(opt.data_dir, opt.val_list)
-            self.dir = os.path.join(opt.data_dir, 'val/images')
+            self.dir = os.path.join(opt.data_dir, 'val/Images')
         
-        self.image_info = pd.read_csv(self.image_list, sep='\n', header=None)
+        self.image_info = pd.read_csv(self.image_list, sep='\n', header=None, nrows=opt.max_image_num)
         print('totaling {} images in split {}'.format(len(self.image_info), self.split))
 
         print('dataset filenames: {}'.format(self.image_list))
@@ -98,12 +98,12 @@ class ETOMDataset(torch.utils.data.Dataset):
             sc_h = int(random.uniform(cr_h, sc_h * 1.05))
 
         path = self.image_info.iloc[idx, 0]
-        path_base = path.split('_')[0]
-        path_ref = path_base + '_ref_2x.png'  # TODO
-        path_tar = path_base + '_img_2x.png'  # TODO
-        path_mask = path_base + '_mask_2x.png'
-        path_rho = path_base + '_rho_2x.png'
-        path_flow = path_base + '_flow_2x.flo'
+        path_base = os.path.splitext(path)[0]
+        path_ref = path_base + '_ref.jpg'  # TODO
+        path_tar = path_base + '.jpg'  # TODO
+        path_mask = path_base + '_mask.png'
+        path_rho = path_base + '_rho.png'
+        path_flow = path_base + '_flow.flo'
 
         image_ref = Image.open(os.path.join(self.dir, path_ref))
         image_ref = TF.to_tensor(image_ref) # size: [3, h, w]

@@ -11,6 +11,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import math
 from pathlib import Path
+from skimage.color import hsv2rgb
 
 TAG = 202021.25
 
@@ -108,11 +109,11 @@ def flow_to_color(flow):
 
     f_mag = torch.sqrt(torch.pow(f_du, 2) + torch.pow(f_dv, 2))
     f_dir = torch.atan2(f_dv, f_du)
-    img = flow_map(f_mag, f_dir, f_val, f_max, 8)
+    img = flow_map(f_mag, f_dir, f_val, f_max)
     
     return img
 
-def flow_map(f_mag, f_dir, f_val, f_max, n):
+def flow_map(f_mag, f_dir, f_val, f_max):
     img_size = f_mag.size()
     img = torch.zeros(3, img_size[0], img_size[1]).cuda()
 
@@ -121,6 +122,8 @@ def flow_map(f_mag, f_dir, f_val, f_max, n):
     img[2, :, :] = 1
 
     img[1:2, :, :] = torch.minimum(torch.maximum(img[1:2, :, :], torch.zeros(img_size).cuda()), torch.ones(img_size).cuda())
+    
+    img = torch.from_numpy(hsv2rgb(img.cpu().permute(1,2,0).detach())).cuda().permute(2,0,1)
 
     img[0, :, :] = img[0, :, :] * f_val
     img[1, :, :] = img[1, :, :] * f_val
@@ -226,41 +229,36 @@ class CreateMultiScaleWarping(nn.Module):
         return warping_module
 
 
-def create_single_warping_module(_input):
-    input = _input[0]
-    grid = grid_generator(_input[1])
-    output = F.grid_sample(input, grid, align_corners=True)
+def create_single_warping_module(input):
+    ref = input[0]
+    flo = input[1]
+    grid = grid_generator(flo)
+
+    output = F.grid_sample(ref, grid, align_corners=True)
     return output
 
-def grid_generator(flows):
-    batch = flows.size(0)
-    height = flows.size(2)
-    width = flows.size(3)
-
-    base_grid_extend = torch.Tensor(batch, height, width, 2).cuda()
-    base_grid = torch.Tensor(height, width, 2).cuda()
-
-    for i in range(height):
-        base_grid[i, :, 0] = -1 + (i-1) / (height-1) * 2
-
-    for i in range(width):
-        base_grid[:, i, 1] = -1 + (i-1) / (width-1) * 2
-
-    for i in range(batch):
-        base_grid_extend[i, :, :] = base_grid.clone()
-
-    if flows.size(1) == 2:
-        flows = flows.transpose(1, 2).transpose(2, 3)
+def grid_generator(flow):
+    B, C, H, W = flow.size()
+    # mesh grid 
+    xx = torch.arange(0, W).view(1,-1).repeat(H,1)
+    yy = torch.arange(0, H).view(-1,1).repeat(1,W)
+    xx = xx.view(1,1,H,W).repeat(B,1,1,1)
+    yy = yy.view(1,1,H,W).repeat(B,1,1,1)
+    grid = torch.cat((xx,yy),1).float().cuda()
     
-    #torch.set_printoptions(profile="full")
-    #with open('sample.txt', 'w') as f:
-    #    f.write(str(flows))
-    #torch.set_printoptions(profile="default")
-    #exit()
-	
-    output = base_grid_extend.add(flows)
-    return output
-
+    flow = flow.div(H/2)
+    flow_clo = flow.clone()
+    flow[:,0,:,:] = flow_clo[:,1,:,:]
+    flow[:,1,:,:] = flow_clo[:,0,:,:]
+    
+    # scale grid to [-1,1] 
+    grid[:,0,:,:] = 2.0*grid[:,0,:,:].clone() / max(W-1,1)-1.0
+    grid[:,1,:,:] = 2.0*grid[:,1,:,:].clone() / max(H-1,1)-1.0
+    
+    grid = grid + flow
+    
+    grid = grid.permute(0,2,3,1)
+    return grid
 
 # evaluation utilities
 

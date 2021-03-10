@@ -4,6 +4,8 @@ import logging
 import os
 import torch.nn as nn
 from torch.cuda.amp import GradScaler, autocast
+import wandb
+import copy
 
 class Trainer:
     def __init__(self, model, opt, optim_state):
@@ -51,18 +53,18 @@ class Trainer:
     def setup_criterion(self, opt):
         print('Setting up criterion')
         print('[Flow Loss] Setting up criterion for flow')
-        self.flow_criterion = utility.EPELoss().cuda()
+        self.flow_criterion = utility.EPELoss
         if opt.refine:
             # for refinement
             # in refinement stage, an addition flow criterion is initialized
             # to calculate the EPE error for CoarseNet
-            self.c_flow_criterion = utility.EPELoss().cuda()  # TODO
+            self.c_flow_criterion = utility.EPELoss
 
         print('[Unsup Loss] Setting up criterion for mask, rho and reconstruction image')
         # criterion for mask, attenuation mask and resconstruction loss
-        self.rec_criterion = nn.MSELoss().cuda()  # TODO
-        self.mask_criterion = nn.CrossEntropyLoss().cuda()  # TODO
-        self.rho_criterion = nn.MSELoss().cuda()  # TODO
+        self.rec_criterion = nn.MSELoss
+        self.mask_criterion = nn.CrossEntropyLoss
+        self.rho_criterion = nn.MSELoss
 
     def setup_solver(self, opt, in_optim_state):
         optim_state = None
@@ -93,7 +95,7 @@ class Trainer:
     def train(self, epoch, dataloader, split, *predictor):
         torch.cuda.empty_cache()
         
-        gradient_accumulations = 8
+        gradient_accumulations = 1
 
         split = split or 'train'
         self.optim_state['lr'] = self.learning_rate(epoch)
@@ -105,7 +107,6 @@ class Trainer:
         print('Training epoch # {}, totaling mini batches {}'.format(epoch+1, num_batches))
 
         self.model.train()
-        crit_output = 0.0
 
         coarse = None
         
@@ -124,7 +125,6 @@ class Trainer:
         optimizer.zero_grad()
 
         for iter, sample in enumerate(dataloader):
-            
             input = self.copy_input_data(sample)
             
             torch.cuda.empty_cache()
@@ -135,39 +135,56 @@ class Trainer:
                 
             torch.autograd.set_detect_anomaly(True)
 
-            output = self.model.forward(input)
+            output = self.model.forward(input)            
+
             pred_images = self.flow_warping_forward(output) # warp input image with flow
 
-            for i in range(self.opt.ms_num):
+            loss = None
 
-                mask_loss = self.opt.mask_w * self.mask_criterion(output[i][1], self.multi_masks[i].squeeze(1).long()) * (1 / 2 ** (self.opt.ms_num - i - 1))
-                rho_loss = self.opt.rho_w * self.rho_criterion(output[i][2], self.multi_rhos[i]) * (1 / 2 ** (self.opt.ms_num - i - 1))
-                flow_loss = self.opt.flow_w * self.flow_criterion(output[i][0], self.multi_flows[i], self.multi_masks[i]) * (1 / 2 ** (self.opt.ms_num - i - 1))
-                rec_loss = self.opt.img_w * self.rec_criterion(pred_images[i], self.multi_tar_images[i]) * (1 / 2 ** (self.opt.ms_num - i - 1))
-                loss = mask_loss + rho_loss + flow_loss + rec_loss
+            for i in range(self.opt.ms_num):
+                #a = output[i][2][1,0,10,20]
+                #b = self.multi_rhos[i][1,0,10,20]
+                #print(a)
+                #print(b)
+                #print(self.rho_criterion(a, b))
+                #exit(1)
+
+                mask_loss = self.opt.mask_w * self.mask_criterion()(output[i][1], self.multi_masks[i].squeeze(1).long()) * (1 / 2 ** (self.opt.ms_num - i - 1))
+                rho_loss = self.opt.rho_w * self.rho_criterion()(output[i][2], self.multi_rhos[i]) * (1 / 2 ** (self.opt.ms_num - i - 1))
+                flow_loss = self.opt.flow_w * self.flow_criterion()(output[i][0], self.multi_flows[i], self.multi_masks[i]) * (1 / 2 ** (self.opt.ms_num - i - 1))
+                rec_loss = self.opt.img_w * self.rec_criterion()(pred_images[i], self.multi_tar_images[i]) * (1 / 2 ** (self.opt.ms_num - i - 1))
+
+
+                if i == 0:
+                    loss = mask_loss + rho_loss + flow_loss + rec_loss
+                else:
+                    loss += mask_loss + rho_loss + flow_loss + rec_loss
                 
                 loss_iter[f'Scale {i}: mask'] += mask_loss.item() 
                 loss_iter[f'Scale {i}: rho'] += rho_loss.item()
                 loss_iter[f'Scale {i}: flow'] += flow_loss.item()
                 loss_iter[f'Scale {i}: rec'] += rec_loss.item()
 
-                # Perform a backward pass
-                if i == self.opt.ms_num-1:
-                    (loss / gradient_accumulations).backward()
-                else:
-                    (loss / gradient_accumulations).backward(retain_graph=True)
+            # Perform a backward pass
+            (loss / gradient_accumulations).backward()
 
-                del mask_loss
-                del rho_loss
-                del flow_loss
-                del rec_loss
-                del loss
+            #before = [copy.deepcopy(c) for c in self.model.named_parameters()]
 
             # Update the weights
             if (iter + 1) % gradient_accumulations == 0:
                 optimizer.step()
                 # Zero gradients
-                self.model.zero_grad()
+                optimizer.zero_grad()
+            
+
+            #after = [copy.deepcopy(c) for c in self.model.named_parameters()]
+                
+            #for i, j in zip(before, after):
+            #    if torch.all(i[1].data.eq(j[1].data)):
+            #        print(i[0], j[0])
+            #        print('fail')
+            
+            
 
             if (iter+1) % self.opt.train_display == 0:
                 loss_epoch[iter] = self.display(epoch+1, iter+1, num_batches, loss_iter, split)
@@ -184,8 +201,8 @@ class Trainer:
                     self.save_multi_results(epoch+1, iter+1, output, pred_images, split, 0)
         
         average_loss = utility.dict_of_dict_average(loss_epoch)
-        for name, params in self.model.named_parameters():
-	        print('-->name:', name, '   -->weight', torch.mean(params.data))
+        #for name, params in self.model.named_parameters():
+	    #    print('-->name:', name, '   -->weight', torch.mean(params.data))
         print('\n\n | Epoch: [{}] Losses summary: {}'.format(epoch+1, utility.build_loss_string(average_loss)))
         return average_loss
 
