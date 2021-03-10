@@ -3,8 +3,9 @@ import argparse
 import numpy as np
 import time
 import datetime
+from typing import Tuple
 
-def get_save_dir_name(args):
+def get_save_dir_name(args: argparse.Namespace) -> Tuple[str, str]:
     now = datetime.datetime.now()
     date = now.strftime("%Y-%m-%d")
     time = now.strftime("%H:%M:%S")
@@ -160,4 +161,3 @@ if args.debug:
     args.train_save = 1
     args.train_display = 1
     args.val_save = 100
-

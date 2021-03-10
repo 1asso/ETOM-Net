@@ -1,5 +1,6 @@
 import torch.multiprocessing as mp
 import torch
+from torch import Tensor
 import math
 import os
 import utility
@@ -12,12 +13,13 @@ import torch.nn.functional as F
 from torch.distributions.uniform import Uniform
 import cv2
 import numpy as np
-import matplotlib.pyplot as plt
 from torch.utils.data import DataLoader
 from option import args
+from argparse import Namespace
+from typing import Type, Any, Callable, Union, List, Optional, Tuple, Dict
 
 
-def create(opt):
+def create(opt: Namespace) -> Tuple[DataLoader, DataLoader]:
     dataset_0 = ETOMDataset(opt, 'train')
     loader_0 = DataLoader(dataset_0, batch_size=opt.batch_size,
                         shuffle=True, num_workers=8, collate_fn=collate)
@@ -26,9 +28,10 @@ def create(opt):
                         shuffle=True, num_workers=8, collate_fn=collate)
     return loader_0, loader_1
 
-def collate(sample):
+
+def collate(sample: List[Dict[str, Tensor]]) -> Dict[str, Tensor]:
     sz = len(sample)
-    batch = masks = rhos = flows = trimaps = image_size = None
+    batch = masks = rhos = flows = image_size = None
     for i, idx in enumerate(sample):
         s = sample[i]
 
@@ -39,29 +42,23 @@ def collate(sample):
             masks = torch.FloatTensor(sz, image_size[1], image_size[2]) 
             rhos = torch.FloatTensor(sz, image_size[1], image_size[2]) 
             flows = torch.FloatTensor(sz, 3, image_size[1], image_size[2])
-            if args.in_trimap:
-                trimaps = torch.FloatTensor(sz, image_size[1], image_size[2]) 
         
         batch[i] = input.clone()
         masks[i] = s['mask'].clone()
         rhos[i] = s['rho'].clone()
         flows[i] = s['flow'].clone()
-        if args.in_trimap:
-            trimaps[i] = s['trimap'].clone()
         
     batch_sample = {}
     batch_sample['input'] = batch
     batch_sample['masks'] = masks
     batch_sample['rhos'] = rhos
     batch_sample['flows'] = flows
-
-    if args.in_trimap:
-        batch_sample['trimaps'] = trimaps
     
     return batch_sample
 
+
 class ETOMDataset(torch.utils.data.Dataset):
-    def __init__(self, opt, split):
+    def __init__(self, opt: Namespace, split: str) -> None:
         self.opt = opt
         self.split = split
         if split == 'train':
@@ -79,14 +76,14 @@ class ETOMDataset(torch.utils.data.Dataset):
         print('image size H * W: {} * {}'.format(self.opt.scale_h, self.opt.scale_w))
         print()
 
-    def transform(self, image):
+    def transform(self, image: Tensor) -> Tensor:
         image = image
         return image
 
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self.image_info)
 
-    def __getitem__(self, idx):
+    def __getitem__(self, idx: int) -> Dict[str, Tensor]:
         sc_w = self.opt.scale_w
         sc_h = self.opt.scale_h
         cr_w = self.opt.crop_w
@@ -122,19 +119,10 @@ class ETOMDataset(torch.utils.data.Dataset):
         add_on= torch.ones(1, flow.size(1), flow.size(2)) # size: [1, h, w]
         flow = torch.cat([flow, add_on], 0) # size: [3, h, w]
 
-        # print(path_base)
         # torch.set_printoptions(profile="full")
         # with open('sample.txt', 'w') as f:
         #     f.write(str(flow))
-        # torch.set_printoptions(profile="default")
-
-        # plt.imshow(image_tar.permute(1, 2, 0))
-        # plt.imshow(mask.permute(1, 2, 0), cmap='gray')
-        # plt.imshow(rho.permute(1, 2, 0), cmap='gray')
-   
-        # plt.imshow(flow.permute(1, 2, 0))
-        # plt.show()
-
+        # exit()
 
         # check if rescaling or croping is needed
         _, in_h, in_w = image_ref.size()

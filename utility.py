@@ -1,23 +1,26 @@
 from models.CoarseNet import CreateOutput
 import os
 import torch
+from torch import Tensor
 import math
 import logging
 from torchvision import transforms
 from torchvision.utils import save_image
-import time
 import struct
 import torch.nn as nn
 import torch.nn.functional as F
 import math
 from pathlib import Path
 from skimage.color import hsv2rgb
+from typing import Type, Any, Callable, Union, List, Optional, Dict
 
 TAG = 202021.25
 
 
-# IO utilities
-def load_t7(condition, f_name):
+### IO utilities
+
+
+def load_t7(condition: bool, f_name: str) -> "model":
     t7_file = None
     if condition:
         if os.path.isfile(f_name):
@@ -25,7 +28,8 @@ def load_t7(condition, f_name):
 
     return t7_file
 
-def resize_tensor(input_tensors, h, w):
+
+def resize_tensor(input_tensors: Tensor, h: int, w: int) -> Tensor:
     final_output = None
 
     for img in input_tensors:
@@ -38,10 +42,8 @@ def resize_tensor(input_tensors, h, w):
             final_output = torch.cat((final_output, img_PIL), 0)
     return final_output
 
-def plot_results_compact(results, log_dir, split):
-    pass
 
-def save_results_compact(save_name, results, width_num):
+def save_results_compact(save_name: str, results: List[Tensor], width_num: int) -> None:
     _int = 5
     num = len(results)
     w_n = width_num or 3
@@ -72,7 +74,6 @@ def save_results_compact(save_name, results, width_num):
             w_idx = (idx-1) % w_n + 1
             h_start = (h_idx-1) * (h+_int)
             w_start = (w_idx-1) * (w+_int)
-            # print(img.size(), big_img.size())
             big_img[:, h_start:h_start+h, w_start:w_start+w] = img
         idx += 1
     path = Path(save_name)
@@ -80,9 +81,11 @@ def save_results_compact(save_name, results, width_num):
         os.makedirs(path.parent)
     save_image(big_img, save_name)
 
-# str utilities
 
-def build_loss_string(losses):
+### str utilities
+
+
+def build_loss_string(losses: dict) -> str:
     total_loss = 0
     s = ''
     for k, v in losses.items():
@@ -92,9 +95,11 @@ def build_loss_string(losses):
     s += ' [Total Loss: {}]'.format(total_loss) 
     return s
 
-# flow utilities
 
-def flow_to_color(flow):
+### flow utilities
+
+
+def flow_to_color(flow: Tensor) -> Tensor:
     flow = flow.float()
     if flow.size(0) == 3:
         f_val = flow[2, :, :].ge(0.1).float()
@@ -105,15 +110,15 @@ def flow_to_color(flow):
     f_dv = flow[0, :, :].clone()
     u_max = torch.max(torch.abs(f_du.masked_select(f_val.bool())))
     v_max = torch.max(torch.abs(f_dv.masked_select(f_val.bool())))
-    f_max = torch.max(u_max, v_max)
 
     f_mag = torch.sqrt(torch.pow(f_du, 2) + torch.pow(f_dv, 2))
     f_dir = torch.atan2(f_dv, f_du)
-    img = flow_map(f_mag, f_dir, f_val, f_max)
+    img = flow_map(f_mag, f_dir, f_val)
     
     return img
 
-def flow_map(f_mag, f_dir, f_val, f_max):
+
+def flow_map(f_mag: Tensor, f_dir: Tensor, f_val: Tensor) -> Tensor:
     img_size = f_mag.size()
     img = torch.zeros(3, img_size[0], img_size[1]).cuda()
 
@@ -132,7 +137,7 @@ def flow_map(f_mag, f_dir, f_val, f_max):
     return img
 
 
-def load_short_flow_file(filename):
+def load_short_flow_file(filename: str) -> Tensor:
     f = open(filename, 'rb')
     tag = struct.unpack('f', f.read(4))[0]
     assert tag == TAG, 'Unable to read ' + filename + ' because of wrong tag'
@@ -153,7 +158,8 @@ def load_short_flow_file(filename):
     flow = flow.permute(2, 0, 1).float() # output: [c, h, w]
     return flow
 
-def save_short_flow_file(filename, flow):
+
+def save_short_flow_file(filename: str, flow: Tensor) -> None:
     flow = flow.short().permute(1, 2, 0).clone()
     f = open(filename, 'wb')
     f.write(struct.pack('f', TAG))
@@ -164,21 +170,25 @@ def save_short_flow_file(filename, flow):
 
     f.close()
 
-# dict utilities
 
-def dicts_add(dict, dict_to_add):
+### dict utilities
+
+
+def dicts_add(dict_ori: dict, dict_to_add: dict) -> None:
     for k, v in dict_to_add.items():
-        if not k in dict.keys():
-            dict[k] = 0
-        dict[k] = dict[k] + v
+        if not k in dict_ori.keys():
+            dict_ori[k] = 0
+        dict_ori[k] = dict_ori[k] + v
 
-def insert_sub_dict(_dict, sub_dict):
-    if _dict:
-        _dict.update(sub_dict)
+
+def insert_sub_dict(dict_ori: dict, sub_dict: dict) -> None:
+    if dict_ori:
+        dict_ori.update(sub_dict)
     else:
-        _dict = sub_dict.copy()
+        dict_ori = sub_dict.copy()
 
-def dict_of_dict_average(dict_of_dict):
+
+def dict_of_dict_average(dict_of_dict: Dict[str, Dict[str, float]]) -> Dict[str, float]:
     result = {}
     for k1, v1 in dict_of_dict.items():
         for k2, v2 in v1.items():
@@ -190,38 +200,42 @@ def dict_of_dict_average(dict_of_dict):
         result[k] /= n
     return result
 
-def dict_divide(t, n):
-    return {k: v / n for k, v in t.items()}
 
-# model utilities
+def dict_divide(dict_ori: dict, n: int) -> dict:
+    return {k: v / n for k, v in dict_ori.items()}
+
+
+### model utilities
+
 
 class CreateMultiScaleData(nn.Module):
-    def __init__(self, ms_num):
+    def __init__(self, ms_num: int) -> None:
         super(CreateMultiScaleData, self).__init__()
         self.ms_num = ms_num
 
-    def forward(self, input):
+    def forward(self, x: List[Tensor]) -> List[List[Tensor]]:
         result = [[],[],[],[],[]]
         for i in range(self.ms_num, 0, -1):
             scale = 2**(i-1)
-            result[0].append(nn.AvgPool2d((scale, scale))(input[0]))
-            result[1].append(nn.AvgPool2d((scale, scale))(input[1]))
-            result[2].append(nn.AvgPool2d((scale, scale))(input[2]))
-            result[3].append(nn.MaxPool2d((scale, scale))(input[3]))
-            result[4].append(nn.AvgPool2d((scale, scale))(input[4]).mul(1/scale))
+            result[0].append(nn.AvgPool2d((scale, scale))(x[0]))
+            result[1].append(nn.AvgPool2d((scale, scale))(x[1]))
+            result[2].append(nn.AvgPool2d((scale, scale))(x[2]))
+            result[3].append(nn.MaxPool2d((scale, scale))(x[3]))
+            result[4].append(nn.AvgPool2d((scale, scale))(x[4]).mul(1/scale))
 
         return result
 
+
 class CreateMultiScaleWarping(nn.Module):
-    def __init__(self, ms_num):
+    def __init__(self, ms_num: int) -> None:
         super(CreateMultiScaleWarping, self).__init__()
         self.ms_num = ms_num
 
-    def forward(self, input):
+    def forward(self, x: List[List[Tensor]]) -> List[Tensor]:
         warping_module = []
         for i in range(self.ms_num):
-            input_0 = input[0][i] # multi_ref_images
-            input_1 = input[1][i] # flows
+            input_0 = x[0][i] # multi_ref_images
+            input_1 = x[1][i] # flows
 
             single_warping = create_single_warping_module([input_0, input_1])
             warping_module.append(single_warping)
@@ -229,7 +243,7 @@ class CreateMultiScaleWarping(nn.Module):
         return warping_module
 
 
-def create_single_warping_module(input):
+def create_single_warping_module(input: List[Tensor]) -> Tensor:
     ref = input[0]
     flo = input[1]
     grid = grid_generator(flo)
@@ -237,7 +251,8 @@ def create_single_warping_module(input):
     output = F.grid_sample(ref, grid, align_corners=True)
     return output
 
-def grid_generator(flow):
+
+def grid_generator(flow: Tensor) -> Tensor:
     B, C, H, W = flow.size()
     # mesh grid 
     xx = torch.arange(0, W).view(1,-1).repeat(H,1)
@@ -260,13 +275,15 @@ def grid_generator(flow):
     grid = grid.permute(0,2,3,1)
     return grid
 
-# evaluation utilities
+
+### evaluation utilities
+
 
 class EPELoss(nn.Module):
-    def __init__(self):
+    def __init__(self) -> None:
         super(EPELoss, self).__init__()
 
-    def forward(self, pred, target, mask):
+    def forward(self, pred: Tensor, target: Tensor, mask: Tensor) -> Tensor:
         target = target.narrow(1, 0, 2)
         mask = mask.expand_as(target)
         pred = pred * mask
@@ -274,11 +291,13 @@ class EPELoss(nn.Module):
 
         return torch.norm(target-pred, dim=1).mean()
 
-def get_final_pred(ref_img, pred_img, pred_mask, pred_rho):
+
+def get_final_pred(ref_img: Tensor, pred_img: Tensor, pred_mask: Tensor, pred_rho: Tensor) -> Tensor:
     final_pred_img = torch.mul(1 - pred_mask, ref_img) + torch.mul(pred_mask, torch.mul(pred_img, pred_rho))
     return final_pred_img
 
-def get_mask(masks):
+
+def get_mask(masks: Tensor) -> Tensor:
     n, c, h, w = list(masks.size())
     m = masks.transpose(1, 3).transpose(1,2)
     m = m.reshape(int(m.numel()/m.size(3)), m.size(3))

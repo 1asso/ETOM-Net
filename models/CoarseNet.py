@@ -6,6 +6,7 @@ from collections import OrderedDict
 import math
 from argparse import Namespace
 
+
 class CreateOutput(nn.Module):
     def __init__(self, in_channels: int, w: int, scale: int) -> None:
         super(CreateOutput, self).__init__()
@@ -17,7 +18,6 @@ class CreateOutput(nn.Module):
         self.conv1_0 = nn.Conv2d(in_channels, 2, k, step, pad)
         self.conv1_1 = nn.Conv2d(in_channels, 2, k, step, pad)
         self.conv2 = nn.Conv2d(in_channels, 1, k, step, pad)
-
 
     def forward(self, x: List[Tensor]) -> List[Tensor]:
         # All tensors in the input list must either have the same shape
@@ -32,14 +32,9 @@ class CreateOutput(nn.Module):
         flow = self.th(flow).clone()
         flow *= self.ratio
 
-
         mask = self.conv1_1(x).cuda()
 
         rho = self.conv2(x).cuda()
-        #if input.size()[3] == 128: 
-        #    print(flow[1,:,1,1])
-        #    print(mask[1,:,1,1])
-        #    print(rho[1,:,1,1],end='\n---\n')
 
         return [flow, mask, rho]
 
@@ -99,6 +94,7 @@ class Decoder(nn.Module):
 
         return self.decoder(x)
 
+
 class CoarseNet(nn.Module):
     def __init__(self, opt: Namespace) -> None:
         super(CoarseNet, self).__init__()
@@ -106,10 +102,6 @@ class CoarseNet(nn.Module):
         use_BN = opt.use_BN
         w = opt.crop_w
         c_in = 3
-        if opt.in_trimap:
-            c_in += 1
-        if opt.in_bg:
-            c_in += 3
 
         c_0 = c_1 = 16
         c_2 = 32
@@ -195,10 +187,7 @@ class CoarseNet(nn.Module):
         self.normalize_output3 = NormalizeOutput(w, 3).cuda()
         self.normalize_output2 = NormalizeOutput(w, 2).cuda()
 
-
     def forward(self, x: Tensor) -> List[List[Tensor]]:
-        
-        
         opt = self.opt
         n_out = 3
 
@@ -219,7 +208,7 @@ class CoarseNet(nn.Module):
         deconv2 = []
         deconv1 = []
         results = []
-        
+
         for i in range(n_out):
             deconv6.append(self.decoder6[i](conv6))
         deconv6.append(conv5)

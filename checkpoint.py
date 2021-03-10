@@ -2,9 +2,13 @@ import os
 import torch
 import torch.nn as nn
 import math
+from argparse import Namespace
+from typing import Tuple
+from models import CoarseNet
+
 
 class CheckPoint:
-    def latest(opt):
+    def latest(opt: Namespace) -> Tuple["model", "state"]:
         if opt.resume == None:
             return None, None
         suffix = opt.suffix  # if specify checkpoint epoch number
@@ -21,7 +25,7 @@ class CheckPoint:
         optim_state = torch.load(optim_state_path)
         return checkpoint, optim_state
 
-    def save(opt, model, optim_state, epoch):
+    def save(opt: Namespace, model: CoarseNet, optim_state: dict, epoch: int) -> None:
         #  create a clean copy on the CPU without modifying the original network
         checkpoint = {}
         checkpoint['opt'] = opt
@@ -42,4 +46,3 @@ class CheckPoint:
         f = open(os.path.join(opt.save, 'latest'), 'w')
         f.write(suffix)
         f.close()
-
