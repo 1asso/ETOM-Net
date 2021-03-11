@@ -55,7 +55,9 @@ parser.add_argument('--noise', type=float, default=0.05,
                     help='noise level')
 parser.add_argument('--rot_ang', type=float, default=0.3,
                     help='angle for rotating data')
-parser.add_argument('--max_image_num', type=int, default=16000,
+parser.add_argument('--max_train_num', type=int, default=16000,
+                    help='>0 for max number')
+parser.add_argument('--max_val_num', type=int, default=-1,
                     help='>0 for max number')
 
 # device options
@@ -127,11 +129,11 @@ parser.add_argument('--train_display', type=int, default=20,
                     help='iteration to display train loss')
 parser.add_argument('--train_save', type=int, default=200,
                     help='iteration to save train results')
-parser.add_argument('--val_interval', type=int, default=20,
-                    help='iteration to do validation')
-parser.add_argument('--val_display', type=int, default=20,
+parser.add_argument('--val_interval', type=int, default=1,
+                    help='epoch to do validation')
+parser.add_argument('--val_display', type=int, default=10,
                     help='iteration to display val loss')
-parser.add_argument('--val_save', type=int, default=20,
+parser.add_argument('--val_save', type=int, default=10,
                     help='iteration to save val results')
 parser.add_argument('--val_only', action='store_true',
                     help='run on validation set only')

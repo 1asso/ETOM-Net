@@ -64,17 +64,23 @@ class ETOMDataset(torch.utils.data.Dataset):
         if split == 'train':
             self.image_list = os.path.join(opt.data_dir, opt.train_list)
             self.dir = os.path.join(opt.data_dir, 'train/Images')
+            if opt.max_train_num > 0:
+                self.image_info = pd.read_csv(self.image_list, sep='\n', header=None, nrows=opt.max_train_num)
+            else:
+                self.image_info = pd.read_csv(self.image_list, sep='\n', header=None)
         elif split == 'val':
             self.image_list = os.path.join(opt.data_dir, opt.val_list)
             self.dir = os.path.join(opt.data_dir, 'val/Images')
+            if opt.max_val_num > 0:
+                self.image_info = pd.read_csv(self.image_list, sep='\n', header=None, nrows=opt.max_val_num)
+            else:
+                self.image_info = pd.read_csv(self.image_list, sep='\n', header=None)
         
-        self.image_info = pd.read_csv(self.image_list, sep='\n', header=None, nrows=opt.max_image_num)
-        print('totaling {} images in split {}'.format(len(self.image_info), self.split))
-
-        print('dataset filenames: {}'.format(self.image_list))
-        print('dataset image directory: {}'.format(self.dir))
-        print('image size H * W: {} * {}'.format(self.opt.scale_h, self.opt.scale_w))
-        print()
+        print(f'\n\n --> Split: {self.split}')
+        print(f'totaling {len(self.image_info)} images')
+        print(f'dataset filenames: {self.image_list}')
+        print(f'dataset image directory: {self.dir}')
+        print(f'image size H * W: {self.opt.scale_h} * {self.opt.scale_w}')
 
     def transform(self, image: Tensor) -> Tensor:
         image = image

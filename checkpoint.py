@@ -5,6 +5,28 @@ import math
 from argparse import Namespace
 from typing import Tuple
 from models import CoarseNet
+import utility
+
+
+def update_history(opt: Namespace, epoch: int, loss: float, split: str) -> "model":
+
+    train_hist = utility.load_data(os.path.join(opt.resume and opt.resume or opt.save, 'train_hist.pt'))
+    val_hist = utility.load_data(os.path.join(opt.resume and opt.resume or opt.save, 'val_hist.pt'))
+
+    if split == 'train':
+        train_hist[epoch] = loss
+        torch.save(train_hist, os.path.join(opt.save, 'train_hist.pt'))
+        with open(os.path.join(opt.save, 'train_hist'), 'w') as f:
+            f.write(utility.hist_to_str(train_hist))
+        return train_hist
+    elif split == 'val':
+        val_hist[epoch] = loss
+        torch.save(val_hist, os.path.join(opt.save, 'val_hist.pt'))
+        with open(os.path.join(opt.save, 'val_hist'), 'w') as f:
+            f.write(utility.hist_to_str(val_hist))
+        return val_hist
+    else:
+        logging.error('Unknown split: ' + split)
 
 
 class CheckPoint:

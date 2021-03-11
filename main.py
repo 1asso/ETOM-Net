@@ -4,64 +4,38 @@ import os
 import logging
 import numpy as np
 from dataloader import create
-from checkpoint import CheckPoint
+from checkpoint import CheckPoint, update_history
 from models.init import setup
 from train import Trainer
 from option import args
 import utility
 
-### initialization
 
-torch.set_default_tensor_type(torch.FloatTensor)
-torch.set_num_threads(1)
-torch.manual_seed(args.manual_seed)
-
-train_loader, val_loader = create(args)
-check_p, optim_state = CheckPoint.latest(args)
-model = setup(args, check_p)
-trainer = Trainer(model, args, optim_state)
-
-if args.val_only:
-    results = trainer.test(1, val_loader, 'val')
-    exit(0)
-
-### configure start points and history
-
-train_hist = utility.load_data(check_p, os.path.join(args.resume and args.resume or '', 'train_hist.t7'))
-val_hist = utility.load_data(check_p, os.path.join(args.resume and args.resume or '', 'val_hist.t7'))
-start_epoch = check_p.epoch if check_p else args.start_epoch
-
-
-def add_history(epoch: int, loss: float, split: str) -> None:
-    history = {epoch: loss}
-    if split == 'train':
-        train_hist = utility.insert_sub_dict(train_hist, history)
-        torch.save(train_hist, os.path.join(args.save, split + '_hist.t7'))
-    elif split == 'val':
-        val_hist = utility.insert_sub_dict(val_hist, history)
-        torch.save(val_hist, os.path.join(args.save, split + '_hist.t7'))
-    else:
-        logging.error('Unknown split: ' + split)
-
-### start training
-
-for epoch in range(start_epoch, args.n_epochs):
+if __name__ == "__main__":
     
-    # train for a single epoch
-    train_loss = trainer.train(epoch, train_loader, 'train')
+    torch.set_default_tensor_type(torch.FloatTensor)
+    torch.set_num_threads(1)
+    torch.manual_seed(args.manual_seed)
 
-    # save checkpoint
-    if (epoch+1) % args.save_interval == 0:
-        print('\n**** Epoch {} saving checkpoint ****\n'.format(epoch+1))
-        CheckPoint.save(args, model, trainer.optim_state, epoch+1)
+    loaders = create(args)
+    check_p, optim_state = CheckPoint.latest(args)
+    model = setup(args, check_p)
+    trainer = Trainer(model, args, optim_state)
 
-    # save and plot results for training stage
-    add_history(epoch+1, train_loss, 'train')
-    # utility.plot_results_compact(train_hist, args.log_dir, 'train')
+    start_epoch = check_p.epoch if check_p else args.start_epoch
 
-    # validation on synthetic data
-    if (epoch+1) % args.val_interval == 0:
-        #val_results = trainer.test(epoch, val_loader, 'val')
-        val_results = 0
-        add_history(epoch+1, val_results, 'val')
-        # utility.plot_results_compact(val_hist, args.log_dir, 'val')
+    if args.val_only:
+        results = trainer.test(0, loaders[1], 'val')
+        exit(0)
+
+    for epoch in range(start_epoch, args.n_epochs):
+        train_loss = trainer.train(epoch, loaders[0], 'train')
+        update_history(args, epoch+1, train_loss, 'train')
+
+        if (epoch+1) % args.save_interval == 0:
+            print('\n\n===== Epoch {} saving checkpoint ====='.format(epoch+1))
+            CheckPoint.save(args, model, trainer.optim_state, epoch+1)
+
+        if (epoch+1) % args.val_interval == 0:
+            val_loss = trainer.test(epoch, loaders[1], 'val')
+            update_history(args, epoch+1, val_loss, 'val')

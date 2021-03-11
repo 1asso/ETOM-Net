@@ -20,13 +20,12 @@ TAG = 202021.25
 ### IO utilities
 
 
-def load_data(condition: bool, f_name: str) -> "model":
-    t7_file = None
-    if condition:
-        if os.path.isfile(f_name):
-            t7_file = torch.load(f_name)
+def load_data(f_name: str) -> "model":
+    data = {}
+    if os.path.isfile(f_name):
+        data = torch.load(f_name)
 
-    return t7_file
+    return data
 
 
 def resize_tensor(input_tensor: Tensor, h: int, w: int) -> Tensor:
@@ -80,20 +79,6 @@ def save_compact_results(save_name: str, results: List[Tensor], width_num: int) 
     if not os.path.exists(path.parent):
         os.makedirs(path.parent)
     save_image(big_img, save_name)
-
-
-### str utilities
-
-
-def build_loss_string(losses: dict) -> str:
-    total_loss = 0
-    s = ''
-    for k, v in losses.items():
-        s += '{}: {}, '.format(k, v)
-        total_loss += v
-
-    s += ' [Total Loss: {}]'.format(total_loss) 
-    return s
 
 
 ### flow utilities
@@ -174,18 +159,28 @@ def save_flow(filename: str, flow: Tensor) -> None:
 ### dict utilities
 
 
+def build_loss_string(losses: dict) -> str:
+    total_loss = 0
+    s = ''
+    count = 0
+    for k, v in losses.items():
+        count += 1
+        s += f'{k}: {v}'
+        if not count % 4:
+            s += '\n'
+        elif count != 16:
+            s += ', '
+        total_loss += v
+
+    s += f'[Total Loss: {total_loss}]'
+    return s
+
+
 def dicts_add(dict_ori: dict, dict_to_add: dict) -> None:
     for k, v in dict_to_add.items():
         if not k in dict_ori.keys():
             dict_ori[k] = 0
         dict_ori[k] = dict_ori[k] + v
-
-
-def insert_sub_dict(dict_ori: dict, sub_dict: dict) -> None:
-    if dict_ori:
-        dict_ori.update(sub_dict)
-    else:
-        dict_ori = sub_dict.copy()
 
 
 def dict_of_dict_average(dict_of_dict: Dict[str, Dict[str, float]]) -> Dict[str, float]:
@@ -203,6 +198,13 @@ def dict_of_dict_average(dict_of_dict: Dict[str, Dict[str, float]]) -> Dict[str,
 
 def dict_divide(dict_ori: dict, n: int) -> dict:
     return {k: v / n for k, v in dict_ori.items()}
+
+
+def hist_to_str(d: dict):
+    s = ''
+    for k, v in d.items():
+        s += f'Epoch: {k}\n{v}\n\n'
+    return s
 
 
 ### model utilities

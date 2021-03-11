@@ -8,10 +8,10 @@ def setup(opt, checkpoint):
         model = checkpoint.model
     elif opt.retrain:
         assert os.path.exists(opt.retrain), 'Model not found: {}'.format(opt.retrain)
-        print('=> [Retrain] Loading model from: models/{}'.format(opt.retrain))
+        print('\n\n --> [Retrain] Loading model from: models/{}'.format(opt.retrain))
         model = torch.load(opt.retrain).model.cuda()
     else:
-        print('=> Creating model from: models/{}.py'.format(opt.network_type))
+        print('\n\n --> Creating model from: models/{}.py'.format(opt.network_type))
         model = getattr(models, opt.network_type)
         model = getattr(model, opt.network_type)(opt)
 
