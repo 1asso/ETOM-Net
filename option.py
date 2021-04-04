@@ -37,9 +37,9 @@ parser.add_argument('--dataset', type=str, default='TOMDataset',
                     help='dataset name')
 parser.add_argument('--data_dir', type=str, default='../TOM-Net_Synth_Train_178k',
                     help='training dataset path')
-parser.add_argument('--train_list', type=str, default='train_simple_98k.txt',
+parser.add_argument('--train_list', type=str, default='train_60k.txt',
                     help='train list')
-parser.add_argument('--val_list', type=str, default='val_imglist.txt',
+parser.add_argument('--val_list', type=str, default='val_400.txt',
                     help='val list')
 parser.add_argument('--data_aug', type=bool, default=True,
                     help='data augmentation')
@@ -55,7 +55,7 @@ parser.add_argument('--noise', type=float, default=0.05,
                     help='noise level')
 parser.add_argument('--rot_ang', type=float, default=0.3,
                     help='angle for rotating data')
-parser.add_argument('--max_train_num', type=int, default=16000,
+parser.add_argument('--max_train_num', type=int, default=-1,
                     help='>0 for max number')
 parser.add_argument('--max_val_num', type=int, default=-1,
                     help='>0 for max number')
@@ -71,11 +71,13 @@ parser.add_argument('--processes', type=int, default=8,
 # training options
 parser.add_argument('--start_epoch', type=int, default=0,
                     help='set start epoch for restart')
-parser.add_argument('--n_epochs', type=int, default=20,
+parser.add_argument('--n_epochs', type=int, default=30,
                     help='number of total epochs to run')
-parser.add_argument('--batch_size', type=int, default=16,
+parser.add_argument('--ga', type=int, default=4,
+                    help='gradient accumulations')
+parser.add_argument('--batch_size', type=int, default=8,
                     help='mini-batch size')
-parser.add_argument('--lr', type=float, default=0.001,
+parser.add_argument('--lr', type=float, default=0.0001,
                     help='initial learning rate')
 parser.add_argument('--lr_decay_start', type=int, default=10,
                     help='number of epochs when lr start to decay')
@@ -115,7 +117,7 @@ parser.add_argument('--save_new', type=int, default=1,
                     help='epochs to save new checkpoint')
 
 # loss options
-parser.add_argument('--flow_w', type=float, default=0.001,
+parser.add_argument('--flow_w', type=float, default=0.01,
                     help='flow weight')
 parser.add_argument('--img_w', type=int, default=1,
                     help='image reconstruction weight')
@@ -125,9 +127,9 @@ parser.add_argument('--rho_w', type=int, default=1,
                     help='attenuation mask weight')
 
 # display options
-parser.add_argument('--train_display', type=int, default=20,
+parser.add_argument('--train_display', type=int, default=50,
                     help='iteration to display train loss')
-parser.add_argument('--train_save', type=int, default=200,
+parser.add_argument('--train_save', type=int, default=500,
                     help='iteration to save train results')
 parser.add_argument('--val_interval', type=int, default=1,
                     help='epoch to do validation')

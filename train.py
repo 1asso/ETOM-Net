@@ -21,6 +21,7 @@ class Trainer:
         
         print('\n\n --> Total number of parameters in ETOM-Net: ' + str(sum(p.numel() for p in self.model.parameters())))
 
+        self.input_image = None
         self.ref_images = None
         self.tar_images = None
         self.rhos = None
@@ -66,7 +67,7 @@ class Trainer:
         return optim_state
 
     def train(self, epoch: int, dataloader: DataLoader, split: str) -> float:
-        gradient_accumulations = 1
+        gradient_accumulations = self.opt.ga
 
         split = split or 'train'
         self.optim_state['lr'] = self.update_lr(epoch)
@@ -86,8 +87,9 @@ class Trainer:
             loss_iter[f'Scale {i} rho'] = 0
             loss_iter[f'Scale {i} flow'] = 0
             loss_iter[f'Scale {i} rec'] = 0
+        #loss_iter['sr'] = 0
 
-        optimizer = torch.optim.Adam(self.model.parameters(), **(self.optim_state))
+        optimizer = torch.optim.Adam(self.model.parameters(), **(self.optim_state), weight_decay=0.01)
 
         # Zero gradients
         optimizer.zero_grad()
@@ -98,7 +100,7 @@ class Trainer:
             torch.cuda.empty_cache()
             torch.autograd.set_detect_anomaly(True)
 
-            output = self.model.forward(input)            
+            output = self.model.forward(input)     
 
             pred_images = self.flow_warping(output) # warp input image with flow
 
@@ -106,10 +108,10 @@ class Trainer:
 
             for i in range(self.opt.ms_num):
 
-                mask_loss = self.opt.mask_w * self.mask_criterion()(output[i][1], self.multi_masks[i].squeeze(1).long()) * (1 / 2 ** (self.opt.ms_num - i - 1))
-                rho_loss = self.opt.rho_w * self.rho_criterion()(output[i][2], self.multi_rhos[i]) * (1 / 2 ** (self.opt.ms_num - i - 1))
-                flow_loss = self.opt.flow_w * self.flow_criterion()(output[i][0], self.multi_flows[i], self.multi_masks[i]) * (1 / 2 ** (self.opt.ms_num - i - 1))
-                rec_loss = self.opt.img_w * self.rec_criterion()(pred_images[i], self.multi_tar_images[i]) * (1 / 2 ** (self.opt.ms_num - i - 1))
+                mask_loss = self.opt.mask_w * self.mask_criterion()(output[i][1], self.multi_masks[i].squeeze(1).long()) * (2 / 3) ** (self.opt.ms_num - i - 1) + 1e-16
+                rho_loss = self.opt.rho_w * self.rho_criterion()(output[i][2], self.multi_rhos[i]) * (2 / 3) ** (self.opt.ms_num - i - 1) + 1e-16
+                flow_loss = self.opt.flow_w * self.flow_criterion()(output[i][0], self.multi_flows[i], self.multi_masks[i]) * (2 / 3) ** (self.opt.ms_num - i - 1) + 1e-16
+                rec_loss = self.opt.img_w * self.rec_criterion()(pred_images[i], self.multi_tar_images[i]) * (2 / 3) ** (self.opt.ms_num - i - 1) + 1e-16
 
                 if i == 0:
                     loss = mask_loss + rho_loss + flow_loss + rec_loss
@@ -120,6 +122,10 @@ class Trainer:
                 loss_iter[f'Scale {i} rho'] += rho_loss.item()
                 loss_iter[f'Scale {i} flow'] += flow_loss.item()
                 loss_iter[f'Scale {i} rec'] += rec_loss.item()
+
+            #sr_loss = self.opt.sr_w * self.sr_criterion()(output[self.opt.ms_num], self.multi_tar_images[self.opt.ms_num-1])
+            #loss += sr_loss
+            #loss_iter['sr'] += sr_loss.item()
 
             # Perform a backward pass
             (loss / gradient_accumulations).backward()
@@ -149,7 +155,7 @@ class Trainer:
         f_names = f'epoch:{epoch}_iter:{iter}_id:{id}'
         return os.path.join(f_path, f_names + '.png')
 
-    def get_predicts(self, split: str, id: int, output: List[Tensor], pred_img: Tensor, m_scale: int) -> List[Tensor]:
+    def get_predicts(self, id: int, output: List[Tensor], pred_img: Tensor, m_scale: int) -> List[Tensor]:
         pred = [] 
         gt_color_flow = utility.flow_to_color(self.multi_flows[m_scale][id])
         pred.append(gt_color_flow)
@@ -172,7 +178,7 @@ class Trainer:
         pred.insert(1, final_img)
         return pred
 
-    def get_first_row(self, split: str, id: int) -> List[Union[bool, Tensor]]:
+    def get_first_row(self, id: int) -> List[Union[bool, Tensor]]:
         first = []
         first.append(self.ref_images[id])
         first.append(self.tar_images[id])
@@ -195,12 +201,12 @@ class Trainer:
         scales = self.opt.ms_num
         results = []
 
-        first_row = self.get_first_row(split, id)
+        first_row = self.get_first_row(id)
         for val in first_row:
             results.append(val)
         
         for i in range(scales-1, -1, -1):
-            sub_pred = self.get_predicts(split, id, output[i], multi_pred_img[i], i)
+            sub_pred = self.get_predicts(id, output[i], multi_pred_img[i], i)
             for val in sub_pred:
                 results.append(val)
         
@@ -234,6 +240,7 @@ class Trainer:
             loss_iter[f'Scale {i} rho'] = 0
             loss_iter[f'Scale {i} flow'] = 0
             loss_iter[f'Scale {i} rec'] = 0
+        #loss_iter['sr'] = 0
 
         for iter, sample in enumerate(dataloader):
 
@@ -249,10 +256,10 @@ class Trainer:
 
                 for i in range(self.opt.ms_num):
 
-                    mask_loss = self.opt.mask_w * self.mask_criterion()(output[i][1], self.multi_masks[i].squeeze(1).long()) * (1 / 2 ** (self.opt.ms_num - i - 1))
-                    rho_loss = self.opt.rho_w * self.rho_criterion()(output[i][2], self.multi_rhos[i]) * (1 / 2 ** (self.opt.ms_num - i - 1))
-                    flow_loss = self.opt.flow_w * self.flow_criterion()(output[i][0], self.multi_flows[i], self.multi_masks[i]) * (1 / 2 ** (self.opt.ms_num - i - 1))
-                    rec_loss = self.opt.img_w * self.rec_criterion()(pred_images[i], self.multi_tar_images[i]) * (1 / 2 ** (self.opt.ms_num - i - 1))
+                    mask_loss = self.opt.mask_w * self.mask_criterion()(output[i][1], self.multi_masks[i].squeeze(1).long()) * (2 / 3) ** (self.opt.ms_num - i - 1)
+                    rho_loss = self.opt.rho_w * self.rho_criterion()(output[i][2], self.multi_rhos[i]) * (2 / 3) ** (self.opt.ms_num - i - 1)
+                    flow_loss = self.opt.flow_w * self.flow_criterion()(output[i][0], self.multi_flows[i], self.multi_masks[i]) * (2 / 3) ** (self.opt.ms_num - i - 1)
+                    rec_loss = self.opt.img_w * self.rec_criterion()(pred_images[i], self.multi_tar_images[i]) * (2 / 3) ** (self.opt.ms_num - i - 1)
 
                     if i == 0:
                         loss = mask_loss + rho_loss + flow_loss + rec_loss
@@ -263,6 +270,10 @@ class Trainer:
                     loss_iter[f'Scale {i} rho'] += rho_loss.item()
                     loss_iter[f'Scale {i} flow'] += flow_loss.item()
                     loss_iter[f'Scale {i} rec'] += rec_loss.item()
+                
+                #sr_loss = self.opt.sr_w * self.sr_criterion()(output[self.opt.ms_num], self.multi_tar_images[self.opt.ms_num-1])
+                #loss += sr_loss
+                #loss_iter['sr'] += sr_loss.item()
 
                 if (iter+1) % self.opt.val_display == 0:
                     loss_epoch[iter] = self.display(epoch+1, iter+1, num_batches, loss_iter, split)
@@ -291,7 +302,7 @@ class Trainer:
         self.copy_inputs(sample)
         self.generate_ms_inputs(sample)
 
-        network_input = self.tar_images
+        network_input = self.input_image
         
         return network_input
 
@@ -301,17 +312,21 @@ class Trainer:
         del self.masks
         del self.rhos
         del self.flows
+        del self.input_image
 
+        self.input_image = torch.cuda.FloatTensor()
         self.ref_images = torch.cuda.FloatTensor()
         self.tar_images = torch.cuda.FloatTensor()
         self.masks = torch.cuda.FloatTensor()
         self.rhos = torch.cuda.FloatTensor()
         self.flows = torch.cuda.FloatTensor()
 
-        n, c, h, w = list(sample['input'].size())
-        
-        self.ref_images.resize_(n, 3, h, w).copy_(sample['input'][:,:3,:,:])
-        self.tar_images.resize_(n, 3, h, w).copy_(sample['input'][:,3:,:,:])
+        n, c, h, w = list(sample['images'].size())
+        sh, sw = list(sample['input'].size()[2:])
+
+        self.input_image.resize_(n, 3, sh, sw).copy_(sample['input'])
+        self.ref_images.resize_(n, 3, h, w).copy_(sample['images'][:,:3,:,:])
+        self.tar_images.resize_(n, 3, h, w).copy_(sample['images'][:,3:,:,:])
         self.masks.resize_(n, h, w).copy_(sample['masks'])
         self.rhos.resize_(n, h, w).copy_(sample['rhos'])
         self.flows.resize_(n, 3, h, w).copy_(sample['flows'])
@@ -336,5 +351,5 @@ class Trainer:
 
     def update_lr(self, epoch: int) -> float:
         ratio = (epoch >= self.opt.lr_decay_start and \
-            epoch % self.opt.lr_decay_step == 0) and 0.5 or 1.0
+            epoch % self.opt.lr_decay_step == 0) and 0.1 or 1.0
         return self.optim_state['lr'] * ratio

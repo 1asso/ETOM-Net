@@ -93,8 +93,6 @@ def flow_to_color(flow: Tensor) -> Tensor:
     
     f_du = flow[1, :, :].clone()
     f_dv = flow[0, :, :].clone()
-    u_max = torch.max(torch.abs(f_du.masked_select(f_val.bool())))
-    v_max = torch.max(torch.abs(f_dv.masked_select(f_val.bool())))
 
     f_mag = torch.sqrt(torch.pow(f_du, 2) + torch.pow(f_dv, 2))
     f_dir = torch.atan2(f_dv, f_du)
@@ -118,7 +116,7 @@ def flow_mapping(f_mag: Tensor, f_dir: Tensor, f_val: Tensor) -> Tensor:
     img[0, :, :] = img[0, :, :] * f_val
     img[1, :, :] = img[1, :, :] * f_val
     img[2, :, :] = img[2, :, :] * f_val
-    
+
     return img
 
 

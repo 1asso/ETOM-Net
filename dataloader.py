@@ -35,21 +35,24 @@ def collate(sample: List[Dict[str, Tensor]]) -> Dict[str, Tensor]:
     for i, idx in enumerate(sample):
         s = sample[i]
 
-        input = s['input']
+        images = s['images']
         if batch is None:
-            image_size = input.size()
+            image_size = images.size()
+            input = torch.FloatTensor(sz, *s['input'].size())
             batch = torch.FloatTensor(sz, *image_size)
             masks = torch.FloatTensor(sz, image_size[1], image_size[2]) 
             rhos = torch.FloatTensor(sz, image_size[1], image_size[2]) 
             flows = torch.FloatTensor(sz, 3, image_size[1], image_size[2])
         
-        batch[i] = input.clone()
+        input[i] = s['input'].clone()
+        batch[i] = images.clone()
         masks[i] = s['mask'].clone()
         rhos[i] = s['rho'].clone()
         flows[i] = s['flow'].clone()
         
     batch_sample = {}
-    batch_sample['input'] = batch
+    batch_sample['input'] = input
+    batch_sample['images'] = batch
     batch_sample['masks'] = masks
     batch_sample['rhos'] = rhos
     batch_sample['flows'] = flows
@@ -102,11 +105,15 @@ class ETOMDataset(torch.utils.data.Dataset):
 
         path = self.image_info.iloc[idx, 0]
         path_base = os.path.splitext(path)[0]
+        path_input = path_base + '_1x.jpg'
         path_ref = path_base + '_ref.jpg'
         path_tar = path_base + '.jpg'
         path_mask = path_base + '_mask.png'
         path_rho = path_base + '_rho.png'
         path_flow = path_base + '_flow.flo'
+
+        image_input = Image.open(os.path.join(self.dir, path_input))
+        image_input = TF.to_tensor(image_input) # size: [3, h, w]
 
         image_ref = Image.open(os.path.join(self.dir, path_ref))
         image_ref = TF.to_tensor(image_ref) # size: [3, h, w]
@@ -157,7 +164,8 @@ class ETOMDataset(torch.utils.data.Dataset):
             pass
 
         sample = {}
-        sample['input'] = images
+        sample['input'] = image_input
+        sample['images'] = images
         sample['mask'] = mask
         sample['rho'] = rho
         sample['flow'] = flow
