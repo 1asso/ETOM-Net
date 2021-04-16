@@ -22,10 +22,10 @@ from typing import Type, Any, Callable, Union, List, Optional, Tuple, Dict
 def create(opt: Namespace) -> Tuple[DataLoader, DataLoader]:
     dataset_0 = ETOMDataset(opt, 'train')
     loader_0 = DataLoader(dataset_0, batch_size=opt.batch_size,
-                        shuffle=True, num_workers=8, collate_fn=collate)
+                        shuffle=True, num_workers=16, collate_fn=collate)
     dataset_1 = ETOMDataset(opt, 'val')
     loader_1 = DataLoader(dataset_1, batch_size=opt.batch_size,
-                        shuffle=True, num_workers=8, collate_fn=collate)
+                        shuffle=True, num_workers=16, collate_fn=collate)
     return loader_0, loader_1
 
 
@@ -140,8 +140,8 @@ class ETOMDataset(torch.utils.data.Dataset):
         # check if rescaling or croping is needed
         _, in_h, in_w = image_ref.size()
         need_scale = in_h != sc_h or in_w != sc_w
-        need_aug = self.opt.data_aug and (self.split == 'train' or self.split == 'val')
-        need_flip = need_aug and random.uniform(0, 1) > 0.5
+        need_aug = False #self.opt.data_aug and (self.split == 'train' or self.split == 'val')
+        need_flip = need_aug and torch.distributions.Uniform(0, 1).sample() > 0.5
         need_rotate = need_aug and self.opt.rot_ang and self.split == 'train'
         need_crop = (sc_h != cr_h or sc_w != cr_w) and self.split == 'train'
 
@@ -149,13 +149,51 @@ class ETOMDataset(torch.utils.data.Dataset):
             pass
         
         if need_aug:
-            final = image_tar
-            images = torch.cat([image_ref, final], 0)
+            dark = torch.lt(rho, 0.7).expand(3, rho.size(1), rho.size(2))
+            image_tar[dark] = image_tar[dark] + torch.distributions.Uniform(0.01, 0.2).sample()
+            
+            mask_roi = torch.from_numpy(cv2.erode(mask.permute(1, 2, 0).numpy(), np.ones((3, 3), np.uint8))).unsqueeze(0)
+            mask_roi = mask - mask_roi
+            mask_roi += dark[0, :, :]
+            mask_roi = mask_roi.clamp(0, 1)
+            mask_roi3 = mask_roi.expand(3, mask_roi.size(1), mask_roi.size(2))
+
+            if torch.distributions.Uniform(0, 1).sample() > 0.5:
+                mask_roi = torch.from_numpy(cv2.dilate(mask.permute(1, 2, 0).numpy(), np.ones((3, 3), np.uint8))).unsqueeze(0)
+            
+            blur_tar = torch.from_numpy(cv2.GaussianBlur(image_tar.permute(1, 2, 0).numpy(), (3, 3), 0)).permute(2, 0, 1) 
+            final_tar = torch.mul(mask_roi3, blur_tar) + torch.mul((1 - mask_roi3), image_tar)
+            
+            blur_input = torch.from_numpy(cv2.GaussianBlur(image_input.permute(1, 2, 0).numpy(), (3, 3), 0)).permute(2, 0, 1) 
+            down_mask_roi = torch.nn.functional.interpolate(mask_roi3.unsqueeze(0), (256,256), mode='bicubic', align_corners=True).squeeze()
+            final_input = torch.mul(down_mask_roi, blur_input) + torch.mul((1 - down_mask_roi), image_input)
+
+            flow[2][dark[0].squeeze()] = 0
+
+            images = torch.cat([image_ref, final_tar], 0)
+            noise = torch.rand(image_ref.size()).repeat(2, 1, 1)
+            images = images + (noise - 0.5).mul(self.opt.noise)
+
+            #rho[0][mask_roi.squeeze().bool()] = images.narrow(0, 3, 3).max(0).values[mask_roi.squeeze().bool()]
         else:
+            final_input = image_input
             images = torch.cat([image_ref, image_tar], 0)
 
         if need_flip:
-            pass
+            if torch.distributions.Uniform(0, 1).sample() > 0.8 and not 'water' in path_tar:
+                images = torch.flip(images, [1,])
+                final_input = torch.flip(final_input, [1,])
+                mask = torch.flip(mask, [1,])
+                rho = torch.flip(rho, [1,])
+                flow = torch.flip(flow, [1,])
+                flow[0] *= -1
+            else:
+                images = torch.flip(images, [2,])
+                final_input = torch.flip(final_input, [2,])
+                mask = torch.flip(mask, [2,])
+                rho = torch.flip(rho, [2,])
+                flow = torch.flip(flow, [2,])
+                flow[1] *= -1
 
         if need_rotate:
             pass
@@ -164,7 +202,7 @@ class ETOMDataset(torch.utils.data.Dataset):
             pass
 
         sample = {}
-        sample['input'] = image_input
+        sample['input'] = final_input
         sample['images'] = images
         sample['mask'] = mask
         sample['rho'] = rho

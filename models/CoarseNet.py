@@ -103,6 +103,7 @@ class RCAB(nn.Module):
             nn.Conv2d(channels, channels // reduction, 1),
             nn.ReLU(inplace=True),
             nn.Conv2d(channels // reduction, channels, 1),
+            nn.Tanh(),
         )
 		
     def forward(self, x: Tensor) -> Tensor:
@@ -193,13 +194,13 @@ class CoarseNet(nn.Module):
         ).cuda()
 
 
-        RIRB0_0 = [RIRB(c_6, 10) for _ in range(4)]
+        RIRB0_0 = [RIRB(c_6, 10) for _ in range(5)]
         RIRB0_0.append(nn.Conv2d(c_6, c_6, 3, 1, 1))
 
-        RIRB0_1 = [RIRB(c_6, 10) for _ in range(4)]
+        RIRB0_1 = [RIRB(c_6, 10) for _ in range(5)]
         RIRB0_1.append(nn.Conv2d(c_6, c_6, 3, 1, 1))
 
-        RIRB0_2 = [RIRB(c_6, 10) for _ in range(4)]
+        RIRB0_2 = [RIRB(c_6, 10) for _ in range(5)]
         RIRB0_2.append(nn.Conv2d(c_6, c_6, 3, 1, 1))
 
         self.RIRB0 = nn.ModuleList([
@@ -208,20 +209,20 @@ class CoarseNet(nn.Module):
             nn.Sequential(*RIRB0_2)
         ]).cuda()
 
-        RIRB1_0 = [RIRB((n_out+1)*c_3, 2) for _ in range(2)]
-        RIRB1_0.append(nn.Conv2d((n_out+1)*c_3, (n_out+1)*c_3, 3, 1, 1))
+        #RIRB1_0 = [RIRB((n_out+1)*c_3, 2) for _ in range(2)]
+        #RIRB1_0.append(nn.Conv2d((n_out+1)*c_3, (n_out+1)*c_3, 3, 1, 1))
 
-        RIRB1_1 = [RIRB((n_out+1)*c_3, 2) for _ in range(2)]
-        RIRB1_1.append(nn.Conv2d((n_out+1)*c_3, (n_out+1)*c_3, 3, 1, 1))
+        #RIRB1_1 = [RIRB((n_out+1)*c_3, 2) for _ in range(2)]
+        #RIRB1_1.append(nn.Conv2d((n_out+1)*c_3, (n_out+1)*c_3, 3, 1, 1))
 
-        RIRB1_2 = [RIRB((n_out+1)*c_3, 2) for _ in range(2)]
-        RIRB1_2.append(nn.Conv2d((n_out+1)*c_3, (n_out+1)*c_3, 3, 1, 1))
+        #RIRB1_2 = [RIRB((n_out+1)*c_3, 2) for _ in range(2)]
+        #RIRB1_2.append(nn.Conv2d((n_out+1)*c_3, (n_out+1)*c_3, 3, 1, 1))
 
-        self.RIRB1 = nn.ModuleList([
-            nn.Sequential(*RIRB1_0), 
-            nn.Sequential(*RIRB1_1), 
-            nn.Sequential(*RIRB1_2)
-        ]).cuda()
+        #self.RIRB1 = nn.ModuleList([
+        #    nn.Sequential(*RIRB1_0), 
+        #    nn.Sequential(*RIRB1_1), 
+        #    nn.Sequential(*RIRB1_2)
+        #]).cuda()
 
         #RIRB2_0 = [RIRB((n_out+1)*c_0+c_out_num, 1) for _ in range(1)]
         #RIRB2_0.append(nn.Conv2d((n_out+1)*c_0+c_out_num, (n_out+1)*c_0+c_out_num, 3, 1, 1))
@@ -245,9 +246,9 @@ class CoarseNet(nn.Module):
             Decoder((n_out+1)*c_4, c_3, 3, 1, False, use_BN),
         ]).cuda()
         self.decoder3 = nn.ModuleList([
-            Decoder((n_out+1)*c_3, c_2, 3, 1, True, use_BN),
-            Decoder((n_out+1)*c_3, c_2, 3, 1, True, use_BN),
-            Decoder((n_out+1)*c_3, c_2, 3, 1, True, use_BN),
+            Decoder((n_out+1)*c_3, c_2, 3, 1, False, use_BN),
+            Decoder((n_out+1)*c_3, c_2, 3, 1, False, use_BN),
+            Decoder((n_out+1)*c_3, c_2, 3, 1, False, use_BN),
         ]).cuda()
         self.decoder2 = nn.ModuleList([
             Decoder((n_out+1)*c_2+c_out_num, c_1, 3, 1, False,use_BN),
@@ -311,7 +312,7 @@ class CoarseNet(nn.Module):
         ms_num = opt.ms_num
 
         for i in range(n_out):
-            deconv3.append(self.decoder3[i](torch.cat(deconv4, dim=1) + self.RIRB1[i](torch.cat(deconv4, dim=1))))
+            deconv3.append(self.decoder3[i](deconv4))
         deconv3.append(conv2)  # deconv3
         
         if ms_num >= 4:

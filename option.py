@@ -73,13 +73,13 @@ parser.add_argument('--start_epoch', type=int, default=0,
                     help='set start epoch for restart')
 parser.add_argument('--n_epochs', type=int, default=30,
                     help='number of total epochs to run')
-parser.add_argument('--ga', type=int, default=4,
+parser.add_argument('--ga', type=int, default=1,
                     help='gradient accumulations')
 parser.add_argument('--batch_size', type=int, default=8,
                     help='mini-batch size')
-parser.add_argument('--lr', type=float, default=0.0001,
+parser.add_argument('--lr', type=float, default=0.0002,
                     help='initial learning rate')
-parser.add_argument('--lr_decay_start', type=int, default=10,
+parser.add_argument('--lr_decay_start', type=int, default=5,
                     help='number of epochs when lr start to decay')
 parser.add_argument('--lr_decay_step', type=int, default=5,
                     help='step for the lr decay')
@@ -121,9 +121,9 @@ parser.add_argument('--flow_w', type=float, default=0.01,
                     help='flow weight')
 parser.add_argument('--img_w', type=int, default=1,
                     help='image reconstruction weight')
-parser.add_argument('--mask_w', type=float, default=0.1,
+parser.add_argument('--mask_w', type=float, default=0.3,
                     help='mask weight')
-parser.add_argument('--rho_w', type=int, default=1,
+parser.add_argument('--rho_w', type=int, default=3,
                     help='attenuation mask weight')
 
 # display options
