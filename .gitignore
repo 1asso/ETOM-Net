@@ -1,4 +1,4 @@
 *.pyc
-*.t7
+*.pt
 data
 .DS_Store

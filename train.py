@@ -6,11 +6,13 @@ import torch.nn as nn
 from torch import Tensor
 from typing import Type, Any, Callable, Union, List, Optional
 from torch.utils.data import DataLoader
-from models import CoarseNet
+from models import CoarseNet, RefineNet
 from argparse import Namespace
+from checkpoint import CheckPoint
 
 class Trainer:
-    def __init__(self, model: CoarseNet, opt: Namespace, optim_state: Optional[dict]) -> None:
+    def __init__(self, model: Union[CoarseNet.CoarseNet, RefineNet.RefineNet], 
+    opt: Namespace, optim_state: Optional[dict]) -> None:
         print('\n\n --> Initializing Trainer')
         self.opt = opt
         self.model = model.cuda()
@@ -82,6 +84,56 @@ class Trainer:
         loss_iter = {} # loss every 20 iterations
         loss_epoch = {} # loss of the entire epoch
 
+        optimizer = torch.optim.Adam(self.model.parameters(), **(self.optim_state), weight_decay=0.01)
+        # Zero gradients
+        optimizer.zero_grad()
+
+        if self.opt.refine:
+            loss_iter['mask'] = 0
+            loss_iter['rho'] = 0
+            loss_iter['flow'] = 0
+
+            for iter, sample in enumerate(dataloader):
+                input = self.setup_inputs(sample)
+                
+                torch.cuda.empty_cache()
+                torch.autograd.set_detect_anomaly(True)
+
+                output = self.model.forward(input)     
+
+                pred_images = self.single_flow_warping(output) # warp input image with flow
+
+                flow_loss = self.flow_criterion()(output[0], self.flows, self.masks.unsqueeze(1)) 
+                mask_loss = self.mask_criterion()(output[1], self.masks.squeeze(1).long()) 
+                rho_loss = self.rho_criterion()(output[2], self.rhos.unsqueeze(1))
+
+                loss = flow_loss + mask_loss + rho_loss
+                
+                loss_iter['mask'] += mask_loss.item() 
+                loss_iter['rho'] += rho_loss.item()
+                loss_iter['flow'] += flow_loss.item()
+
+                # Perform a backward pass
+                (loss / gradient_accumulations).backward()
+
+                # Update the weights
+                if (iter + 1) % gradient_accumulations == 0:
+                    optimizer.step()
+                    optimizer.zero_grad()
+
+                if (iter+1) % self.opt.train_display == 0:
+                    loss_epoch[iter] = self.display(epoch+1, iter+1, num_batches, loss_iter, split)
+                    loss_iter['mask'] = 0
+                    loss_iter['rho'] = 0
+                    loss_iter['flow'] = 0
+
+                if (iter+1) % self.opt.train_save == 0:
+                    self.save_results(epoch+1, iter+1, output, pred_images, split, 0)
+            
+            average_loss = utility.build_loss_string(utility.dict_of_dict_average(loss_epoch))
+            print(f'\n\n --> Epoch: [{epoch+1}] Loss summary: \n{average_loss}')
+            return average_loss
+
         for i in range(self.opt.ms_num):
             loss_iter[f'Scale {i} mask'] = 0
             loss_iter[f'Scale {i} rho'] = 0
@@ -89,10 +141,6 @@ class Trainer:
             loss_iter[f'Scale {i} rec'] = 0
         #loss_iter['sr'] = 0
 
-        optimizer = torch.optim.Adam(self.model.parameters(), **(self.optim_state), weight_decay=0.01)
-
-        # Zero gradients
-        optimizer.zero_grad()
 
         for iter, sample in enumerate(dataloader):
             input = self.setup_inputs(sample)
@@ -157,7 +205,10 @@ class Trainer:
 
     def get_predicts(self, id: int, output: List[Tensor], pred_img: Tensor, m_scale: int) -> List[Tensor]:
         pred = [] 
-        gt_color_flow = utility.flow_to_color(self.multi_flows[m_scale][id])
+        if m_scale:
+            gt_color_flow = utility.flow_to_color(self.multi_flows[m_scale][id])
+        else:
+            gt_color_flow = utility.flow_to_color(self.flows[id])
         pred.append(gt_color_flow)
 
         color_flow = utility.flow_to_color(output[0][id])
@@ -167,7 +218,7 @@ class Trainer:
         rho = output[2][id].repeat(3, 1, 1)
         pred.append(rho)
 
-        if m_scale != None:
+        if m_scale:
             final_img = utility.get_final_pred(self.multi_ref_images[m_scale][id], pred_img[id], mask, rho)
             first_img = self.multi_tar_images[m_scale][id]
         else:
@@ -216,6 +267,29 @@ class Trainer:
             torch.max(output[scales-1][0][id]), torch.min(output[scales-1][0][id]), 
             torch.mean(torch.abs(output[scales-1][0][id]))))
 
+    def save_results(
+        self, 
+        epoch: int, 
+        iter: int, 
+        output: List[Tensor], 
+        pred_img: Tensor, 
+        split: str, 
+        id: int
+        ) -> None:
+        id = id or 0
+        results = []
+
+        first_row = self.get_first_row(id)
+        for val in first_row:
+            results.append(val)
+        
+        sub_pred = self.get_predicts(id, output, pred_img, None)
+        for val in sub_pred:
+            results.append(val)
+        
+        save_name = self.get_saving_name(self.opt.log_dir, split, epoch, iter, id)
+        utility.save_compact_results(save_name, results, 6)
+
     # for image reconstruction loss and image warping
     def flow_warping(self, output: List[List[Tensor]]) -> List[Tensor]:
         flows = []
@@ -223,6 +297,10 @@ class Trainer:
             flows.append(output[i][0])
         
         pred_images= self.warping_module([self.multi_ref_images, flows])
+        return pred_images
+
+    def single_flow_warping(self, output: List[Tensor]) -> Tensor:
+        pred_images= utility.create_single_warping([self.ref_images, output[0]])
         return pred_images
 
     def test(self, epoch: int, dataloader: DataLoader, split: str) -> float:
@@ -234,6 +312,42 @@ class Trainer:
         print(f'\n\n===== Testing after {epoch+1} epochs =====')
         
         self.model.eval()
+
+        if self.opt.refine:
+            loss_iter['mask'] = 0
+            loss_iter['rho'] = 0
+            loss_iter['flow'] = 0
+
+            for iter, sample in enumerate(dataloader):
+                input = self.setup_inputs(sample)
+                
+                torch.cuda.empty_cache()
+                torch.autograd.set_detect_anomaly(True)
+
+                output = self.model.forward(input)     
+
+                pred_images = self.single_flow_warping(output) # warp input image with flow
+
+                flow_loss = self.flow_criterion()(output[0], self.flows, self.masks.unsqueeze(1)) 
+                mask_loss = self.mask_criterion()(output[1], self.masks.squeeze(1).long()) 
+                rho_loss = self.rho_criterion()(output[2], self.rhos.unsqueeze(1))
+                
+                loss_iter['mask'] += mask_loss.item() 
+                loss_iter['rho'] += rho_loss.item()
+                loss_iter['flow'] += flow_loss.item()
+
+                if (iter+1) % self.opt.val_display == 0:
+                    loss_epoch[iter] = self.display(epoch+1, iter+1, num_batches, loss_iter, split)
+                    loss_iter['mask'] = 0
+                    loss_iter['rho'] = 0
+                    loss_iter['flow'] = 0
+
+                if (iter+1) % self.opt.val_save == 0:
+                    self.save_results(epoch+1, iter+1, output, pred_images, split, 0)
+            
+            average_loss = utility.build_loss_string(utility.dict_of_dict_average(loss_epoch))
+            print(f'\n\n --> Epoch: [{epoch+1}] Loss summary: \n{average_loss}')
+            return average_loss
 
         for i in range(self.opt.ms_num):
             loss_iter[f'Scale {i} mask'] = 0
@@ -261,19 +375,10 @@ class Trainer:
                     flow_loss = self.opt.flow_w * self.flow_criterion()(output[i][0], self.multi_flows[i], self.multi_masks[i]) * (1 / 2 ** (self.opt.ms_num - i - 1))
                     rec_loss = self.opt.img_w * self.rec_criterion()(pred_images[i], self.multi_tar_images[i]) * (1 / 2 ** (self.opt.ms_num - i - 1))
 
-                    if i == 0:
-                        loss = mask_loss + rho_loss + flow_loss + rec_loss
-                    else:
-                        loss += mask_loss + rho_loss + flow_loss + rec_loss
-                    
                     loss_iter[f'Scale {i} mask'] += mask_loss.item() 
                     loss_iter[f'Scale {i} rho'] += rho_loss.item()
                     loss_iter[f'Scale {i} flow'] += flow_loss.item()
                     loss_iter[f'Scale {i} rec'] += rec_loss.item()
-                
-                #sr_loss = self.opt.sr_w * self.sr_criterion()(output[self.opt.ms_num], self.multi_tar_images[self.opt.ms_num-1])
-                #loss += sr_loss
-                #loss_iter['sr'] += sr_loss.item()
 
                 if (iter+1) % self.opt.val_display == 0:
                     loss_epoch[iter] = self.display(epoch+1, iter+1, num_batches, loss_iter, split)
@@ -300,9 +405,15 @@ class Trainer:
 
     def setup_inputs(self, sample: dict) -> Tensor:
         self.copy_inputs(sample)
-        self.generate_ms_inputs(sample)
-
-        network_input = self.input_image
+        if not self.opt.refine:
+            self.generate_ms_inputs(sample)
+            network_input = self.input_image
+        else:
+            checkpoint = torch.load(self.opt.pred_dir)
+            model = checkpoint['model']
+            network_input = model.forward(self.input_image)[self.opt.ms_num-1]
+            network_input.insert(0, nn.functional.interpolate(
+                self.input_image, (512,512), mode='bicubic', align_corners=True))
         
         return network_input
 

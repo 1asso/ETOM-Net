@@ -22,7 +22,7 @@ if __name__ == "__main__":
     model = setup(args, check_p)
     trainer = Trainer(model, args, optim_state)
 
-    start_epoch = check_p.epoch if check_p else args.start_epoch
+    start_epoch = check_p['epoch'] if check_p else args.start_epoch
 
     if args.val_only:
         results = trainer.test(0, loaders[1], 'val')

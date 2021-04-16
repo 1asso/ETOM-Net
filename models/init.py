@@ -1,18 +1,19 @@
 import os
 import torch
-import models.CoarseNet
-from models import *
+from models import CoarseNet, RefineNet
 
 def setup(opt, checkpoint):
     if checkpoint:
-        model = checkpoint.model
+        model = checkpoint['model']
     elif opt.retrain:
-        assert os.path.exists(opt.retrain), 'Model not found: {}'.format(opt.retrain)
-        print('\n\n --> [Retrain] Loading model from: models/{}'.format(opt.retrain))
+        assert os.path.exists(opt.retrain), f'Model not found: {opt.retrain}'
+        print(f'\n\n --> [Retrain] Loading model from: models/{opt.retrain}')
         model = torch.load(opt.retrain).model.cuda()
+    elif opt.refine:
+        print(f'\n\n --> Creating model from: models/RefineNet.py')
+        model = RefineNet.RefineNet(opt)
     else:
-        print('\n\n --> Creating model from: models/{}.py'.format(opt.network_type))
-        model = getattr(models, opt.network_type)
-        model = getattr(model, opt.network_type)(opt)
+        print(f'\n\n --> Creating model from: models/CoarseNet.py')
+        model = CoarseNet.CoarseNet(opt)
 
     return model.cuda()

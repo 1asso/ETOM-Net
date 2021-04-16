@@ -9,7 +9,7 @@ def get_save_dir_name(args: argparse.Namespace) -> Tuple[str, str]:
     now = datetime.datetime.now()
     date = now.strftime("%Y-%m-%d")
     time = now.strftime("%H:%M:%S")
-    d_name = date + args.prefix + '_' + args.network_type
+    d_name = date + args.prefix + '_' + (args.refine and 'RefineNet' or 'CoarseNet')
 
     params = ['scale_h', 'crop_h', 'flow_w',
                 'mask_w', 'rho_w', 'img_w', 'lr']
@@ -75,7 +75,7 @@ parser.add_argument('--n_epochs', type=int, default=30,
                     help='number of total epochs to run')
 parser.add_argument('--ga', type=int, default=1,
                     help='gradient accumulations')
-parser.add_argument('--batch_size', type=int, default=8,
+parser.add_argument('--batch_size', type=int, default=4,
                     help='mini-batch size')
 parser.add_argument('--lr', type=float, default=0.0002,
                     help='initial learning rate')
@@ -91,8 +91,6 @@ parser.add_argument('--beta_2', type=float, default=0.999,
                     help='second param of Adam optimizer')
 
 # network options
-parser.add_argument('--network_type', type=str, default='CoarseNet',
-                    help='network type')
 # parser.add_argument('--use_BN', type=bool, default=True,
 #                     help='use batch norm')
 parser.add_argument('--ms_num', type=int, default=4,
@@ -102,7 +100,9 @@ parser.add_argument('--in_bg', action='store_true',
 parser.add_argument('--in_trimap', action='store_true',
                     help='take trimap as input')
 parser.add_argument('--refine', action='store_true',
-                    help='train refine net')                    
+                    help='train refine net')
+parser.add_argument('--pred_dir', type=str, default='coarse.pt',
+                    help='predictor path')
 
 # checkpoint options
 parser.add_argument('--resume', type=str, default=None,
