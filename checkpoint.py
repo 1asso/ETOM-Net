@@ -10,8 +10,8 @@ import utility
 
 def update_history(opt: Namespace, epoch: int, loss: float, split: str) -> "model":
 
-    train_hist = utility.load_data(os.path.join(opt.resume and opt.resume or opt.save, 'train_hist.pt'))
-    val_hist = utility.load_data(os.path.join(opt.resume and opt.resume or opt.save, 'val_hist.pt'))
+    train_hist = utility.load_data(os.path.join(opt.save, 'train_hist.pt'))
+    val_hist = utility.load_data(os.path.join(opt.save, 'val_hist.pt'))
 
     if split == 'train':
         train_hist[epoch] = loss
@@ -38,13 +38,13 @@ class CheckPoint:
             f = open(os.path.join(opt.resume, 'latest'), 'r')
             suffix = f.read()
         
-        checkpoint_path = os.path.join(opt.resume, 'checkpoint', suffix, '.pt')
-        optim_state_path = os.path.join(opt.resume, 'optim_state', suffix, '.pt')
+        checkpoint_path = os.path.join(opt.resume, 'checkpoint' + suffix + '.pt')
+        optim_state_path = os.path.join(opt.resume, 'optim_state' + suffix + '.pt')
 
         print('=> [Resume] Loading checkpoint: ' + checkpoint_path)
         print('=> [Resume] Loading Optim state: ' + optim_state_path)
-        checkpoint = torch.load(checkpoint_path)
-        optim_state = torch.load(optim_state_path)
+        checkpoint = torch.load(checkpoint_path, map_location='cpu')
+        optim_state = torch.load(optim_state_path, map_location='cpu')
         return checkpoint, optim_state
 
     def save(opt: Namespace, model: CoarseNet, optim_state: dict, epoch: int) -> None:

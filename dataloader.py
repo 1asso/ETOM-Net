@@ -140,15 +140,15 @@ class ETOMDataset(torch.utils.data.Dataset):
         # check if rescaling or croping is needed
         _, in_h, in_w = image_ref.size()
         need_scale = in_h != sc_h or in_w != sc_w
-        need_aug = False #self.opt.data_aug and (self.split == 'train' or self.split == 'val')
-        need_flip = need_aug and torch.distributions.Uniform(0, 1).sample() > 0.5
-        need_rotate = need_aug and self.opt.rot_ang and self.split == 'train'
+        need_aug = self.opt.data_aug
+        need_flip = need_aug and self.split == 'train' and torch.distributions.Uniform(0, 1).sample() > 0.5
+        need_rotate = need_aug and self.split == 'train' and torch.distributions.Uniform(0,1).sample() > 0.5
         need_crop = (sc_h != cr_h or sc_w != cr_w) and self.split == 'train'
 
         if need_scale:
             pass
         
-        if need_aug:
+        if need_aug and False:
             dark = torch.lt(rho, 0.7).expand(3, rho.size(1), rho.size(2))
             image_tar[dark] = image_tar[dark] + torch.distributions.Uniform(0.01, 0.2).sample()
             
@@ -180,23 +180,25 @@ class ETOMDataset(torch.utils.data.Dataset):
             images = torch.cat([image_ref, image_tar], 0)
 
         if need_flip:
-            if torch.distributions.Uniform(0, 1).sample() > 0.8 and not 'water' in path_tar:
-                images = torch.flip(images, [1,])
-                final_input = torch.flip(final_input, [1,])
-                mask = torch.flip(mask, [1,])
-                rho = torch.flip(rho, [1,])
-                flow = torch.flip(flow, [1,])
-                flow[0] *= -1
-            else:
-                images = torch.flip(images, [2,])
-                final_input = torch.flip(final_input, [2,])
-                mask = torch.flip(mask, [2,])
-                rho = torch.flip(rho, [2,])
-                flow = torch.flip(flow, [2,])
-                flow[1] *= -1
+            images = torch.flip(images, [2,])
+            final_input = torch.flip(final_input, [2,])
+            mask = torch.flip(mask, [2,])
+            rho = torch.flip(rho, [2,])
+            flow = torch.flip(flow, [2,])
+            flow[1] *= -1
 
         if need_rotate:
-            pass
+            times = torch.randint(0, 4, (1,))[0]
+            images = torch.rot90(images, times, [1, 2])
+            final_input = torch.rot90(final_input, times, [1, 2])
+            mask = torch.rot90(mask, times, [1, 2])
+            rho = torch.rot90(rho, times, [1, 2])
+            flow_rot = torch.rot90(flow, times, [1, 2])
+            ang = -90 * times
+            fu = torch.mul(flow_rot[1], math.cos(ang)) - torch.mul(flow_rot[0], math.sin(ang))
+            fv = torch.mul(flow_rot[1], math.sin(ang)) + torch.mul(flow_rot[0], math.cos(ang))
+            flow[1] = fu.clone()
+            flow[0] = fv.clone()
 
         if need_crop:
             pass

@@ -1,6 +1,7 @@
 import os
 import torch
 from models import CoarseNet, RefineNet
+from torch import nn
 
 def setup(opt, checkpoint):
     if checkpoint:
@@ -16,4 +17,7 @@ def setup(opt, checkpoint):
         print(f'\n\n --> Creating model from: models/CoarseNet.py')
         model = CoarseNet.CoarseNet(opt)
 
-    return model.cuda()
+    if torch.cuda.device_count() > 1:
+          print("Let's use", torch.cuda.device_count(), "GPUs!")
+          model = nn.DataParallel(model).cuda(0)
+    return model

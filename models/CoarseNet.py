@@ -28,13 +28,13 @@ class CreateOutput(nn.Module):
         # Use dim=1 because of the existence of batch_size
         # output: Tensor(batch_size, 4 * 128, feature_map(h, w))
         
-        flow = self.conv1_0(x).cuda()
+        flow = self.conv1_0(x)
         flow = self.th(flow).clone()
         flow *= self.ratio
 
-        mask = self.conv1_1(x).cuda()
+        mask = self.conv1_1(x)
 
-        rho = self.conv2(x).cuda()
+        rho = self.conv2(x)
 
         return [flow, mask, rho]
 
@@ -60,14 +60,14 @@ class Encoder(nn.Module):
     def __init__(self, in_channels: int, out_channels: int, k: int, step: int, use_BN: bool) -> None:
         super(Encoder, self).__init__()
         pad = math.floor((k-1)/2)
-        od = OrderedDict()
-        od['conv'] = nn.Conv2d(in_channels, out_channels, k, step, pad)
+        od = []
+        od.append(nn.Conv2d(in_channels, out_channels, k, step, pad))
         if use_BN:
-            od['batch_norm'] = nn.BatchNorm2d(out_channels)
+            od.append(nn.BatchNorm2d(out_channels))
         
-        od['actv'] = nn.ReLU(inplace=False)
+        od.append(nn.ReLU(inplace=False))
         
-        self.encoder = nn.Sequential(od).cuda()
+        self.encoder = nn.Sequential(*od)
 
     def forward(self, x: Tensor) -> Tensor:
         return self.encoder(x)
@@ -78,15 +78,15 @@ class Decoder(nn.Module):
         super(Decoder, self).__init__()
         pad = math.floor((k-1)/2)
         self.is_bottom = is_bottom
-        od = OrderedDict()
-        od['conv'] = nn.Conv2d(in_channels, out_channels, k, step, pad)
+        od = []
+        od.append(nn.Conv2d(in_channels, out_channels, k, step, pad))
         if use_BN:
-            od['batch_norm'] = nn.BatchNorm2d(out_channels)
+            od.append(nn.BatchNorm2d(out_channels))
         
-        od['actv'] = nn.ReLU(inplace=False)
-        od['up'] = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
+        od.append(nn.ReLU(inplace=False))
+        od.append(nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True))
         
-        self.decoder = nn.Sequential(od).cuda()
+        self.decoder = nn.Sequential(*od)
 
     def forward(self, x: Union[Tensor, List[Tensor]]) -> Tensor:
         if not self.is_bottom:
@@ -167,108 +167,108 @@ class CoarseNet(nn.Module):
         self.encoder0 = nn.Sequential(
             Encoder(c_in, c_0, 3, 1, use_BN),
             Encoder(c_0, c_0, 3, 1, use_BN),
-        ).cuda()
+        )
         self.encoder1 = nn.Sequential(
             Encoder(c_0, c_1, 3, 2, use_BN),
             Encoder(c_1, c_1, 3, 1, use_BN),
-        ).cuda()
+        )
         self.encoder2 = nn.Sequential(
             Encoder(c_1, c_2, 3, 2, use_BN),
             Encoder(c_2, c_2, 3, 1, use_BN),
-        ).cuda()
+        )
         self.encoder3 = nn.Sequential(
             Encoder(c_2, c_3, 3, 2, use_BN),
             Encoder(c_3, c_3, 3, 1, use_BN),
-        ).cuda()
+        )
         self.encoder4 = nn.Sequential(
             Encoder(c_3, c_4, 3, 2, use_BN),
             Encoder(c_4, c_4, 3, 1, use_BN),
-        ).cuda()
+        )
         self.encoder5 = nn.Sequential(
             Encoder(c_4, c_5, 3, 2, use_BN),
             Encoder(c_5, c_5, 3, 1, use_BN),
-        ).cuda()
+        )
         self.encoder6 = nn.Sequential(
             Encoder(c_5, c_6, 3, 2, use_BN),
             Encoder(c_6, c_6, 3, 1, use_BN),
-        ).cuda()
+        )
 
 
-        RIRB0_0 = [RIRB(c_6, 10) for _ in range(5)]
+        RIRB0_0 = [RIRB(c_6, 8) for _ in range(4)]
         RIRB0_0.append(nn.Conv2d(c_6, c_6, 3, 1, 1))
 
-        RIRB0_1 = [RIRB(c_6, 10) for _ in range(5)]
+        RIRB0_1 = [RIRB(c_6, 8) for _ in range(4)]
         RIRB0_1.append(nn.Conv2d(c_6, c_6, 3, 1, 1))
 
-        RIRB0_2 = [RIRB(c_6, 10) for _ in range(5)]
+        RIRB0_2 = [RIRB(c_6, 8) for _ in range(4)]
         RIRB0_2.append(nn.Conv2d(c_6, c_6, 3, 1, 1))
 
         self.RIRB0 = nn.ModuleList([
             nn.Sequential(*RIRB0_0), 
             nn.Sequential(*RIRB0_1), 
             nn.Sequential(*RIRB0_2)
-        ]).cuda()
+        ])
 
-        #RIRB1_0 = [RIRB((n_out+1)*c_3, 2) for _ in range(2)]
-        #RIRB1_0.append(nn.Conv2d((n_out+1)*c_3, (n_out+1)*c_3, 3, 1, 1))
+        RIRB1_0 = [RIRB((n_out+1)*c_3, 8) for _ in range(2)]
+        RIRB1_0.append(nn.Conv2d((n_out+1)*c_3, (n_out+1)*c_3, 3, 1, 1))
 
-        #RIRB1_1 = [RIRB((n_out+1)*c_3, 2) for _ in range(2)]
-        #RIRB1_1.append(nn.Conv2d((n_out+1)*c_3, (n_out+1)*c_3, 3, 1, 1))
+        RIRB1_1 = [RIRB((n_out+1)*c_3, 8) for _ in range(2)]
+        RIRB1_1.append(nn.Conv2d((n_out+1)*c_3, (n_out+1)*c_3, 3, 1, 1))
 
-        #RIRB1_2 = [RIRB((n_out+1)*c_3, 2) for _ in range(2)]
-        #RIRB1_2.append(nn.Conv2d((n_out+1)*c_3, (n_out+1)*c_3, 3, 1, 1))
+        RIRB1_2 = [RIRB((n_out+1)*c_3, 8) for _ in range(2)]
+        RIRB1_2.append(nn.Conv2d((n_out+1)*c_3, (n_out+1)*c_3, 3, 1, 1))
 
-        #self.RIRB1 = nn.ModuleList([
-        #    nn.Sequential(*RIRB1_0), 
-        #    nn.Sequential(*RIRB1_1), 
-        #    nn.Sequential(*RIRB1_2)
-        #]).cuda()
+        self.RIRB1 = nn.ModuleList([
+            nn.Sequential(*RIRB1_0), 
+            nn.Sequential(*RIRB1_1), 
+            nn.Sequential(*RIRB1_2)
+        ])
 
-        #RIRB2_0 = [RIRB((n_out+1)*c_0+c_out_num, 1) for _ in range(1)]
-        #RIRB2_0.append(nn.Conv2d((n_out+1)*c_0+c_out_num, (n_out+1)*c_0+c_out_num, 3, 1, 1))
+        RIRB2_0 = [RIRB(c_0, 8) for _ in range(1)]
+        RIRB2_0.append(nn.Conv2d(c_0, c_0, 3, 1, 1))
 
-        #self.RIRB2 = nn.Sequential(*RIRB2_0).cuda()
+        self.RIRB2 = nn.Sequential(*RIRB2_0)
         
 
         self.decoder6 = nn.ModuleList([
             Decoder(c_6, c_5, 3, 1, True, use_BN),
             Decoder(c_6, c_5, 3, 1, True, use_BN), 
             Decoder(c_6, c_5, 3, 1, True, use_BN),
-        ]).cuda()
+        ])
         self.decoder5 = nn.ModuleList([
             Decoder((n_out+1)*c_5, c_4, 3, 1, False, use_BN),
             Decoder((n_out+1)*c_5, c_4, 3, 1, False, use_BN),
             Decoder((n_out+1)*c_5, c_4, 3, 1, False, use_BN),
-        ]).cuda()
+        ])
         self.decoder4 = nn.ModuleList([
             Decoder((n_out+1)*c_4, c_3, 3, 1, False, use_BN),
             Decoder((n_out+1)*c_4, c_3, 3, 1, False, use_BN),
             Decoder((n_out+1)*c_4, c_3, 3, 1, False, use_BN),
-        ]).cuda()
+        ])
         self.decoder3 = nn.ModuleList([
-            Decoder((n_out+1)*c_3, c_2, 3, 1, False, use_BN),
-            Decoder((n_out+1)*c_3, c_2, 3, 1, False, use_BN),
-            Decoder((n_out+1)*c_3, c_2, 3, 1, False, use_BN),
-        ]).cuda()
+            Decoder((n_out+1)*c_3, c_2, 3, 1, True, use_BN),
+            Decoder((n_out+1)*c_3, c_2, 3, 1, True, use_BN),
+            Decoder((n_out+1)*c_3, c_2, 3, 1, True, use_BN),
+        ])
         self.decoder2 = nn.ModuleList([
             Decoder((n_out+1)*c_2+c_out_num, c_1, 3, 1, False,use_BN),
             Decoder((n_out+1)*c_2+c_out_num, c_1, 3, 1, False,use_BN),
             Decoder((n_out+1)*c_2+c_out_num, c_1, 3, 1, False,use_BN),
-        ]).cuda()
+        ])
         self.decoder1 = nn.ModuleList([
             Decoder((n_out+1)*c_1+c_out_num, c_0, 3, 1, False, use_BN),
             Decoder((n_out+1)*c_1+c_out_num, c_0, 3, 1, False, use_BN),
             Decoder((n_out+1)*c_1+c_out_num, c_0, 3, 1, False, use_BN),
-        ]).cuda()
+        ])
 
-        self.create_output4 = CreateOutput((n_out+1)*c_3, w, 4).cuda()
-        self.create_output3 = CreateOutput((n_out+1)*c_2+c_out_num, w, 3).cuda()
-        self.create_output2 = CreateOutput((n_out+1)*c_1+c_out_num, w, 2).cuda()
-        self.create_output1 = CreateOutput((n_out+1)*c_0+c_out_num, w, 1).cuda()
+        self.create_output4 = CreateOutput((n_out+1)*c_3, w, 4)
+        self.create_output3 = CreateOutput((n_out+1)*c_2+c_out_num, w, 3)
+        self.create_output2 = CreateOutput((n_out+1)*c_1+c_out_num, w, 2)
+        self.create_output1 = CreateOutput((n_out+1)*c_0+c_out_num, w, 1)
 
-        self.normalize_output4 = NormalizeOutput(w, 4).cuda()
-        self.normalize_output3 = NormalizeOutput(w, 3).cuda()
-        self.normalize_output2 = NormalizeOutput(w, 2).cuda()
+        self.normalize_output4 = NormalizeOutput(w, 4)
+        self.normalize_output3 = NormalizeOutput(w, 3)
+        self.normalize_output2 = NormalizeOutput(w, 2)
 
     def forward(self, x: Tensor) -> List[List[Tensor]]:
         opt = self.opt
@@ -312,7 +312,7 @@ class CoarseNet(nn.Module):
         ms_num = opt.ms_num
 
         for i in range(n_out):
-            deconv3.append(self.decoder3[i](deconv4))
+            deconv3.append(self.decoder3[i](torch.cat([conv3, conv3, conv3, conv3], dim=1) + self.RIRB1[i](torch.cat(deconv4, dim=1))))
         deconv3.append(conv2)  # deconv3
         
         if ms_num >= 4:
@@ -344,7 +344,7 @@ class CoarseNet(nn.Module):
             deconv1.append(s2_out_up)
             results.append(s2_out)
 
-        s1_out = self.create_output1(deconv1)
+        s1_out = self.create_output1(torch.cat([conv0, conv0, conv0, conv0, torch.zeros(conv0.size()[0], 5, conv0.size()[2], conv0.size()[3]).cuda()], dim=1) + torch.cat(deconv1, dim=1))
         results.append(s1_out)
 
         return results

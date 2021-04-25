@@ -10,6 +10,8 @@ from models import CoarseNet, RefineNet
 from argparse import Namespace
 from checkpoint import CheckPoint
 
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
 class Trainer:
     def __init__(self, model: Union[CoarseNet.CoarseNet, RefineNet.RefineNet], 
     opt: Namespace, optim_state: Optional[dict]) -> None:
@@ -95,7 +97,7 @@ class Trainer:
 
             for iter, sample in enumerate(dataloader):
                 input = self.setup_inputs(sample)
-                
+                input = input.to(device)
                 torch.cuda.empty_cache()
                 torch.autograd.set_detect_anomaly(True)
 
@@ -144,7 +146,8 @@ class Trainer:
 
         for iter, sample in enumerate(dataloader):
             input = self.setup_inputs(sample)
-            
+            input = input.to(device)
+
             torch.cuda.empty_cache()
             torch.autograd.set_detect_anomaly(True)
 
@@ -205,7 +208,7 @@ class Trainer:
 
     def get_predicts(self, id: int, output: List[Tensor], pred_img: Tensor, m_scale: int) -> List[Tensor]:
         pred = [] 
-        if m_scale:
+        if m_scale != None:
             gt_color_flow = utility.flow_to_color(self.multi_flows[m_scale][id])
         else:
             gt_color_flow = utility.flow_to_color(self.flows[id])
@@ -218,7 +221,7 @@ class Trainer:
         rho = output[2][id].repeat(3, 1, 1)
         pred.append(rho)
 
-        if m_scale:
+        if m_scale != None:
             final_img = utility.get_final_pred(self.multi_ref_images[m_scale][id], pred_img[id], mask, rho)
             first_img = self.multi_tar_images[m_scale][id]
         else:
@@ -320,7 +323,8 @@ class Trainer:
 
             for iter, sample in enumerate(dataloader):
                 input = self.setup_inputs(sample)
-                
+                input = input.to(device)
+
                 torch.cuda.empty_cache()
                 torch.autograd.set_detect_anomaly(True)
 
@@ -361,8 +365,8 @@ class Trainer:
             with torch.no_grad():
 
                 torch.cuda.empty_cache()
-
                 input = self.setup_inputs(sample)
+                input = input.to(device)
                 output = self.model.forward(input)
                 pred_images = self.flow_warping(output) # warp input image with flow
 
@@ -425,12 +429,12 @@ class Trainer:
         del self.flows
         del self.input_image
 
-        self.input_image = torch.cuda.FloatTensor()
-        self.ref_images = torch.cuda.FloatTensor()
-        self.tar_images = torch.cuda.FloatTensor()
-        self.masks = torch.cuda.FloatTensor()
-        self.rhos = torch.cuda.FloatTensor()
-        self.flows = torch.cuda.FloatTensor()
+        self.input_image = torch.cuda.FloatTensor().to(device)
+        self.ref_images = torch.cuda.FloatTensor().to(device)
+        self.tar_images = torch.cuda.FloatTensor().to(device)
+        self.masks = torch.cuda.FloatTensor().to(device)
+        self.rhos = torch.cuda.FloatTensor().to(device)
+        self.flows = torch.cuda.FloatTensor().to(device)
 
         n, c, h, w = list(sample['images'].size())
         sh, sw = list(sample['input'].size()[2:])
