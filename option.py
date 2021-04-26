@@ -121,9 +121,9 @@ parser.add_argument('--flow_w', type=float, default=0.01,
                     help='flow weight')
 parser.add_argument('--img_w', type=int, default=1,
                     help='image reconstruction weight')
-parser.add_argument('--mask_w', type=float, default=0.1,
+parser.add_argument('--mask_w', type=float, default=0.3,
                     help='mask weight')
-parser.add_argument('--rho_w', type=int, default=1,
+parser.add_argument('--rho_w', type=int, default=3,
                     help='attenuation mask weight')
 
 # display options

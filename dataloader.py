@@ -174,12 +174,12 @@ class ETOMDataset(torch.utils.data.Dataset):
             noise = torch.rand(image_ref.size()).repeat(2, 1, 1)
             images = images + (noise - 0.5).mul(self.opt.noise)
 
-            #rho[0][mask_roi.squeeze().bool()] = images.narrow(0, 3, 3).max(0).values[mask_roi.squeeze().bool()]
+            rho[0][mask_roi.squeeze().bool()] = images.narrow(0, 3, 3).max(0).values[mask_roi.squeeze().bool()]
         else:
             final_input = image_input
             images = torch.cat([image_ref, image_tar], 0)
 
-        if need_flip:
+        if need_flip and False:
             images = torch.flip(images, [2,])
             final_input = torch.flip(final_input, [2,])
             mask = torch.flip(mask, [2,])
@@ -187,14 +187,14 @@ class ETOMDataset(torch.utils.data.Dataset):
             flow = torch.flip(flow, [2,])
             flow[1] *= -1
 
-        if need_rotate:
+        if need_rotate and False:
             times = torch.randint(0, 4, (1,))[0]
             images = torch.rot90(images, times, [1, 2])
             final_input = torch.rot90(final_input, times, [1, 2])
             mask = torch.rot90(mask, times, [1, 2])
             rho = torch.rot90(rho, times, [1, 2])
             flow_rot = torch.rot90(flow, times, [1, 2])
-            ang = -90 * times
+            ang = 90 * times
             fu = torch.mul(flow_rot[1], math.cos(ang)) - torch.mul(flow_rot[0], math.sin(ang))
             fv = torch.mul(flow_rot[1], math.sin(ang)) + torch.mul(flow_rot[0], math.cos(ang))
             flow[1] = fu.clone()

@@ -193,42 +193,22 @@ class CoarseNet(nn.Module):
             Encoder(c_6, c_6, 3, 1, use_BN),
         )
 
+        layers = 5
 
-        RIRB0_0 = [RIRB(c_6, 8) for _ in range(4)]
-        RIRB0_0.append(nn.Conv2d(c_6, c_6, 3, 1, 1))
+        RIRB0 = [RIRB(c_6, layers) for _ in range(4)]
+        RIRB0.append(nn.Conv2d(c_6, c_6, 3, 1, 1))
 
-        RIRB0_1 = [RIRB(c_6, 8) for _ in range(4)]
-        RIRB0_1.append(nn.Conv2d(c_6, c_6, 3, 1, 1))
+        self.RIRB0 = nn.Sequential(*RIRB0) 
 
-        RIRB0_2 = [RIRB(c_6, 8) for _ in range(4)]
-        RIRB0_2.append(nn.Conv2d(c_6, c_6, 3, 1, 1))
+        RIRB1 = [RIRB((n_out+1)*c_3, layers) for _ in range(2)]
+        RIRB1.append(nn.Conv2d((n_out+1)*c_3, (n_out+1)*c_3, 3, 1, 1))
 
-        self.RIRB0 = nn.ModuleList([
-            nn.Sequential(*RIRB0_0), 
-            nn.Sequential(*RIRB0_1), 
-            nn.Sequential(*RIRB0_2)
-        ])
+        self.RIRB1 = nn.Sequential(*RIRB1) 
 
-        RIRB1_0 = [RIRB((n_out+1)*c_3, 8) for _ in range(2)]
-        RIRB1_0.append(nn.Conv2d((n_out+1)*c_3, (n_out+1)*c_3, 3, 1, 1))
+        RIRB2 = [RIRB((n_out+1)*c_1+c_out_num, layers) for _ in range(1)]
+        RIRB2.append(nn.Conv2d((n_out+1)*c_1+c_out_num, (n_out+1)*c_1+c_out_num, 3, 1, 1))
 
-        RIRB1_1 = [RIRB((n_out+1)*c_3, 8) for _ in range(2)]
-        RIRB1_1.append(nn.Conv2d((n_out+1)*c_3, (n_out+1)*c_3, 3, 1, 1))
-
-        RIRB1_2 = [RIRB((n_out+1)*c_3, 8) for _ in range(2)]
-        RIRB1_2.append(nn.Conv2d((n_out+1)*c_3, (n_out+1)*c_3, 3, 1, 1))
-
-        self.RIRB1 = nn.ModuleList([
-            nn.Sequential(*RIRB1_0), 
-            nn.Sequential(*RIRB1_1), 
-            nn.Sequential(*RIRB1_2)
-        ])
-
-        RIRB2_0 = [RIRB(c_0, 8) for _ in range(1)]
-        RIRB2_0.append(nn.Conv2d(c_0, c_0, 3, 1, 1))
-
-        self.RIRB2 = nn.Sequential(*RIRB2_0)
-        
+        self.RIRB2 = nn.Sequential(*RIRB2)
 
         self.decoder6 = nn.ModuleList([
             Decoder(c_6, c_5, 3, 1, True, use_BN),
@@ -295,10 +275,9 @@ class CoarseNet(nn.Module):
         deconv1 = []
         results = []
 
-        #conv6_sr = [self.sr1(conv6), self.sr2(conv6), self.sr3(conv6)]
-
+        in_0 = conv6 + self.RIRB0(conv6)
         for i in range(n_out):
-            deconv6.append(self.decoder6[i](conv6 + self.RIRB0[i](conv6)))
+            deconv6.append(self.decoder6[i](in_0))
         deconv6.append(conv5)
 
         for i in range(n_out):
@@ -311,8 +290,9 @@ class CoarseNet(nn.Module):
 
         ms_num = opt.ms_num
 
+        in_1 = torch.cat(deconv4, dim=1) + self.RIRB1(torch.cat(deconv4, dim=1))
         for i in range(n_out):
-            deconv3.append(self.decoder3[i](torch.cat([conv3, conv3, conv3, conv3], dim=1) + self.RIRB1[i](torch.cat(deconv4, dim=1))))
+            deconv3.append(self.decoder3[i](in_1))
         deconv3.append(conv2)  # deconv3
         
         if ms_num >= 4:
@@ -344,7 +324,8 @@ class CoarseNet(nn.Module):
             deconv1.append(s2_out_up)
             results.append(s2_out)
 
-        s1_out = self.create_output1(torch.cat([conv0, conv0, conv0, conv0, torch.zeros(conv0.size()[0], 5, conv0.size()[2], conv0.size()[3]).cuda()], dim=1) + torch.cat(deconv1, dim=1))
+        in_2 = torch.cat(deconv1, dim=1) + self.RIRB2(torch.cat(deconv1, dim=1))
+        s1_out = self.create_output1(in_2)
         results.append(s1_out)
 
         return results
