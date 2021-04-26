@@ -179,7 +179,7 @@ class ETOMDataset(torch.utils.data.Dataset):
             final_input = image_input
             images = torch.cat([image_ref, image_tar], 0)
 
-        if need_flip:
+        if need_flip and False:
             images = torch.flip(images, [2,])
             final_input = torch.flip(final_input, [2,])
             mask = torch.flip(mask, [2,])
@@ -187,7 +187,7 @@ class ETOMDataset(torch.utils.data.Dataset):
             flow = torch.flip(flow, [2,])
             flow[1] *= -1
 
-        if need_rotate:
+        if need_rotate and False:
             times = torch.randint(0, 4, (1,))[0]
             images = torch.rot90(images, times, [1, 2])
             final_input = torch.rot90(final_input, times, [1, 2])
