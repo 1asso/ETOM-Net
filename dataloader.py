@@ -174,7 +174,7 @@ class ETOMDataset(torch.utils.data.Dataset):
             noise = torch.rand(image_ref.size()).repeat(2, 1, 1)
             images = images + (noise - 0.5).mul(self.opt.noise)
 
-            #rho[0][mask_roi.squeeze().bool()] = images.narrow(0, 3, 3).max(0).values[mask_roi.squeeze().bool()]
+            rho[0][mask_roi.squeeze().bool()] = images.narrow(0, 3, 3).max(0).values[mask_roi.squeeze().bool()]
         else:
             final_input = image_input
             images = torch.cat([image_ref, image_tar], 0)
@@ -194,7 +194,7 @@ class ETOMDataset(torch.utils.data.Dataset):
             mask = torch.rot90(mask, times, [1, 2])
             rho = torch.rot90(rho, times, [1, 2])
             flow_rot = torch.rot90(flow, times, [1, 2])
-            ang = -90 * times
+            ang = 90 * times
             fu = torch.mul(flow_rot[1], math.cos(ang)) - torch.mul(flow_rot[0], math.sin(ang))
             fv = torch.mul(flow_rot[1], math.sin(ang)) + torch.mul(flow_rot[0], math.cos(ang))
             flow[1] = fu.clone()
