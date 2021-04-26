@@ -185,7 +185,7 @@ class ETOMDataset(torch.utils.data.Dataset):
             mask = torch.flip(mask, [2,])
             rho = torch.flip(rho, [2,])
             flow = torch.flip(flow, [2,])
-            flow[1] *= -1
+            flow[0] *= -1
 
         if need_rotate:
             times = torch.randint(0, 4, (1,))[0]
