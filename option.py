@@ -75,7 +75,7 @@ parser.add_argument('--n_epochs', type=int, default=50,
                     help='number of total epochs to run')
 parser.add_argument('--ga', type=int, default=1,
                     help='gradient accumulations')
-parser.add_argument('--batch_size', type=int, default=16,
+parser.add_argument('--batch_size', type=int, default=32,
                     help='mini-batch size')
 parser.add_argument('--lr', type=float, default=0.002,
                     help='initial learning rate')
@@ -129,7 +129,7 @@ parser.add_argument('--rho_w', type=int, default=3,
 # display options
 parser.add_argument('--train_display', type=int, default=10,
                     help='iteration to display train loss')
-parser.add_argument('--train_save', type=int, default=250,
+parser.add_argument('--train_save', type=int, default=125,
                     help='iteration to save train results')
 parser.add_argument('--val_interval', type=int, default=1,
                     help='epoch to do validation')

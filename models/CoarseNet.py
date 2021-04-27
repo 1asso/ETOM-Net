@@ -103,7 +103,7 @@ class RCAB(nn.Module):
             nn.Conv2d(channels, channels // reduction, 1),
             nn.ReLU(inplace=True),
             nn.Conv2d(channels // reduction, channels, 1),
-            nn.Tanh(),
+            nn.Sigmoid(),
         )
 		
     def forward(self, x: Tensor) -> Tensor:
@@ -193,7 +193,7 @@ class CoarseNet(nn.Module):
             Encoder(c_6, c_6, 3, 1, use_BN),
         )
 
-        layers = 5
+        layers = 4
 
         RIRB0 = [RIRB(c_6, layers) for _ in range(4)]
         RIRB0.append(nn.Conv2d(c_6, c_6, 3, 1, 1))
@@ -236,9 +236,9 @@ class CoarseNet(nn.Module):
             Decoder((n_out+1)*c_2+c_out_num, c_1, 3, 1, False,use_BN),
         ])
         self.decoder1 = nn.ModuleList([
-            Decoder((n_out+1)*c_1+c_out_num, c_0, 3, 1, False, use_BN),
-            Decoder((n_out+1)*c_1+c_out_num, c_0, 3, 1, False, use_BN),
-            Decoder((n_out+1)*c_1+c_out_num, c_0, 3, 1, False, use_BN),
+            Decoder((n_out+1)*c_1+c_out_num, c_0, 3, 1, True, use_BN),
+            Decoder((n_out+1)*c_1+c_out_num, c_0, 3, 1, True, use_BN),
+            Decoder((n_out+1)*c_1+c_out_num, c_0, 3, 1, True, use_BN),
         ])
 
         self.create_output4 = CreateOutput((n_out+1)*c_3, w, 4)
@@ -313,8 +313,10 @@ class CoarseNet(nn.Module):
             deconv2.append(s3_out_up)
             results.append(s3_out)
 
+        in_2 = torch.cat(deconv2, dim=1) + self.RIRB2(torch.cat(deconv2, dim=1))
+
         for i in range(n_out):
-            deconv1.append(self.decoder1[i](deconv2))
+            deconv1.append(self.decoder1[i](in_2))
         deconv1.append(conv0)  # deconv1
 
         if ms_num >= 2:
@@ -324,8 +326,7 @@ class CoarseNet(nn.Module):
             deconv1.append(s2_out_up)
             results.append(s2_out)
 
-        in_2 = torch.cat(deconv1, dim=1) + self.RIRB2(torch.cat(deconv1, dim=1))
-        s1_out = self.create_output1(in_2)
+        s1_out = self.create_output1(deconv1)
         results.append(s1_out)
 
         return results
