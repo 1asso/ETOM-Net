@@ -15,14 +15,13 @@ if __name__ == "__main__":
     
     torch.set_default_tensor_type(torch.FloatTensor)
     torch.set_num_threads(1)
-    torch.manual_seed(args.manual_seed)
 
     loaders = create(args)
     check_p, optim_state = CheckPoint.latest(args)
     model = setup(args, check_p)
     trainer = Trainer(model, args, optim_state)
 
-    start_epoch = check_p['epoch'] if check_p else args.start_epoch
+    start_epoch = check_p['epoch'] if check_p else 0
 
     if args.val_only:
         results = trainer.test(0, loaders[1], 'val')

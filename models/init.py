@@ -18,6 +18,5 @@ def setup(opt, checkpoint):
         model = CoarseNet.CoarseNet(opt)
 
     if torch.cuda.device_count() > 1:
-          print("Let's use", torch.cuda.device_count(), "GPUs!")
           model = nn.DataParallel(model).cuda(0)
     return model

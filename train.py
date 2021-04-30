@@ -465,6 +465,5 @@ class Trainer:
             self.multi_rhos[i] = self.multi_rhos[i].unsqueeze(1)
 
     def update_lr(self, epoch: int) -> float:
-        ratio = (epoch >= self.opt.lr_decay_start and \
-            epoch % self.opt.lr_decay_step == 0) and 0.5 or 1.0
+        ratio = epoch and 0.9 or 1
         return self.optim_state['lr'] * ratio

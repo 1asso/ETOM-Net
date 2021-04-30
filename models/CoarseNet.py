@@ -10,31 +10,30 @@ from argparse import Namespace
 class CreateOutput(nn.Module):
     def __init__(self, in_channels: int, w: int, scale: int) -> None:
         super(CreateOutput, self).__init__()
-        k = 3
-        step = 1
-        pad = math.floor((k - 1) / 2)
         self.ratio = w / 2 ** (scale-1)
-        self.th = nn.Tanh()
-        self.conv1_0 = nn.Conv2d(in_channels, 2, k, step, pad)
-        self.conv1_1 = nn.Conv2d(in_channels, 2, k, step, pad)
-        self.conv2 = nn.Conv2d(in_channels, 1, k, step, pad)
+        self.sub_pixel1 = nn.Sequential(
+            nn.Conv2d(in_channels, 2 * 4, kernel_size=3, stride=1, padding=1),
+            nn.PixelShuffle(2),
+        )
+        self.sub_pixel2 = nn.Sequential(
+            nn.Conv2d(in_channels, 2 * 4, kernel_size=3, stride=1, padding=1),
+            nn.PixelShuffle(2),
+        )
+        self.sub_pixel3 = nn.Sequential(
+            nn.Conv2d(in_channels, 1 * 4, kernel_size=3, stride=1, padding=1),
+            nn.PixelShuffle(2),
+        )
 
     def forward(self, x: List[Tensor]) -> List[Tensor]:
-        # All tensors in the input list must either have the same shape
-        # (except in the concatenating dimension) or be empty.
-        # input: [4 * Tensor(batch_size, 128, feature_map(h, w))]
         if type(x) != Tensor:
             x = torch.cat(x, dim=1) 
-        # Use dim=1 because of the existence of batch_size
-        # output: Tensor(batch_size, 4 * 128, feature_map(h, w))
         
-        flow = self.conv1_0(x)
-        flow = self.th(flow).clone()
+        flow = self.sub_pixel1(x).clone()
         flow *= self.ratio
 
-        mask = self.conv1_1(x)
+        mask = self.sub_pixel2(x)
 
-        rho = self.conv2(x)
+        rho = self.sub_pixel3(x)
 
         return [flow, mask, rho]
 
@@ -43,7 +42,6 @@ class NormalizeOutput(nn.Module):
     def __init__(self, w: int, scale: int) -> None:
         super(NormalizeOutput, self).__init__()
         self.ratio = 2.0 ** (scale-1) / w
-        self.up = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
         self.sm = nn.Softmax(dim=1)
 
     def forward(self, x: List[Tensor]) -> Tensor:
@@ -53,18 +51,16 @@ class NormalizeOutput(nn.Module):
         x[1] = self.sm(x[1])
 
         x = torch.cat(x, dim=1)
-        return self.up(x)
+        return x
         
 
 class Encoder(nn.Module):
-    def __init__(self, in_channels: int, out_channels: int, k: int, step: int, use_BN: bool) -> None:
+    def __init__(self, in_channels: int, out_channels: int, k: int, step: int) -> None:
         super(Encoder, self).__init__()
         pad = math.floor((k-1)/2)
         od = []
         od.append(nn.Conv2d(in_channels, out_channels, k, step, pad))
-        if use_BN:
-            od.append(nn.BatchNorm2d(out_channels))
-        
+        od.append(nn.BatchNorm2d(out_channels))
         od.append(nn.ReLU(inplace=False))
         
         self.encoder = nn.Sequential(*od)
@@ -74,23 +70,20 @@ class Encoder(nn.Module):
 
 
 class Decoder(nn.Module):
-    def __init__(self, in_channels: int, out_channels: int, k: int, step: int, is_bottom: bool, use_BN: bool) -> None:
+    def __init__(self, in_channels: int, out_channels: int, k: int, step: int) -> None:
         super(Decoder, self).__init__()
         pad = math.floor((k-1)/2)
-        self.is_bottom = is_bottom
         od = []
         od.append(nn.Conv2d(in_channels, out_channels, k, step, pad))
-        if use_BN:
-            od.append(nn.BatchNorm2d(out_channels))
-        
+        od.append(nn.BatchNorm2d(out_channels))
         od.append(nn.ReLU(inplace=False))
         od.append(nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True))
         
         self.decoder = nn.Sequential(*od)
 
     def forward(self, x: Union[Tensor, List[Tensor]]) -> Tensor:
-        if not self.is_bottom:
-            x = torch.cat(x, dim=1)
+        if type(x) != Tensor:
+            x = torch.cat(x, dim=1) 
 
         return self.decoder(x)
 
@@ -151,8 +144,7 @@ class CoarseNet(nn.Module):
     def __init__(self, opt: Namespace) -> None:
         super(CoarseNet, self).__init__()
         self.opt = opt
-        use_BN = opt.use_BN
-        w = opt.crop_w
+        w = 512
         c_in = 3
 
         c_0 = c_1 = 16
@@ -165,35 +157,35 @@ class CoarseNet(nn.Module):
         c_out_num = 5  # total num of channels (2 + 2 + 1)
 
         self.encoder0 = nn.Sequential(
-            Encoder(c_in, c_0, 3, 1, use_BN),
-            Encoder(c_0, c_0, 3, 1, use_BN),
+            Encoder(c_in, c_0, 3, 1),
+            Encoder(c_0, c_0, 3, 1),
         )
         self.encoder1 = nn.Sequential(
-            Encoder(c_0, c_1, 3, 2, use_BN),
-            Encoder(c_1, c_1, 3, 1, use_BN),
+            Encoder(c_0, c_1, 3, 2),
+            Encoder(c_1, c_1, 3, 1),
         )
         self.encoder2 = nn.Sequential(
-            Encoder(c_1, c_2, 3, 2, use_BN),
-            Encoder(c_2, c_2, 3, 1, use_BN),
+            Encoder(c_1, c_2, 3, 2),
+            Encoder(c_2, c_2, 3, 1),
         )
         self.encoder3 = nn.Sequential(
-            Encoder(c_2, c_3, 3, 2, use_BN),
-            Encoder(c_3, c_3, 3, 1, use_BN),
+            Encoder(c_2, c_3, 3, 2),
+            Encoder(c_3, c_3, 3, 1),
         )
         self.encoder4 = nn.Sequential(
-            Encoder(c_3, c_4, 3, 2, use_BN),
-            Encoder(c_4, c_4, 3, 1, use_BN),
+            Encoder(c_3, c_4, 3, 2),
+            Encoder(c_4, c_4, 3, 1),
         )
         self.encoder5 = nn.Sequential(
-            Encoder(c_4, c_5, 3, 2, use_BN),
-            Encoder(c_5, c_5, 3, 1, use_BN),
+            Encoder(c_4, c_5, 3, 2),
+            Encoder(c_5, c_5, 3, 1),
         )
         self.encoder6 = nn.Sequential(
-            Encoder(c_5, c_6, 3, 2, use_BN),
-            Encoder(c_6, c_6, 3, 1, use_BN),
+            Encoder(c_5, c_6, 3, 2),
+            Encoder(c_6, c_6, 3, 1),
         )
 
-        layers = 4
+        layers = 10
 
         RIRB0 = [RIRB(c_6, layers) for _ in range(4)]
         RIRB0.append(nn.Conv2d(c_6, c_6, 3, 1, 1))
@@ -211,34 +203,34 @@ class CoarseNet(nn.Module):
         self.RIRB2 = nn.Sequential(*RIRB2)
 
         self.decoder6 = nn.ModuleList([
-            Decoder(c_6, c_5, 3, 1, True, use_BN),
-            Decoder(c_6, c_5, 3, 1, True, use_BN), 
-            Decoder(c_6, c_5, 3, 1, True, use_BN),
+            Decoder(c_6, c_5, 3, 1),
+            Decoder(c_6, c_5, 3, 1), 
+            Decoder(c_6, c_5, 3, 1),
         ])
         self.decoder5 = nn.ModuleList([
-            Decoder((n_out+1)*c_5, c_4, 3, 1, False, use_BN),
-            Decoder((n_out+1)*c_5, c_4, 3, 1, False, use_BN),
-            Decoder((n_out+1)*c_5, c_4, 3, 1, False, use_BN),
+            Decoder((n_out+1)*c_5, c_4, 3, 1),
+            Decoder((n_out+1)*c_5, c_4, 3, 1),
+            Decoder((n_out+1)*c_5, c_4, 3, 1),
         ])
         self.decoder4 = nn.ModuleList([
-            Decoder((n_out+1)*c_4, c_3, 3, 1, False, use_BN),
-            Decoder((n_out+1)*c_4, c_3, 3, 1, False, use_BN),
-            Decoder((n_out+1)*c_4, c_3, 3, 1, False, use_BN),
+            Decoder((n_out+1)*c_4, c_3, 3, 1),
+            Decoder((n_out+1)*c_4, c_3, 3, 1),
+            Decoder((n_out+1)*c_4, c_3, 3, 1),
         ])
         self.decoder3 = nn.ModuleList([
-            Decoder((n_out+1)*c_3, c_2, 3, 1, True, use_BN),
-            Decoder((n_out+1)*c_3, c_2, 3, 1, True, use_BN),
-            Decoder((n_out+1)*c_3, c_2, 3, 1, True, use_BN),
+            Decoder((n_out+1)*c_3, c_2, 3, 1),
+            Decoder((n_out+1)*c_3, c_2, 3, 1),
+            Decoder((n_out+1)*c_3, c_2, 3, 1),
         ])
         self.decoder2 = nn.ModuleList([
-            Decoder((n_out+1)*c_2+c_out_num, c_1, 3, 1, False,use_BN),
-            Decoder((n_out+1)*c_2+c_out_num, c_1, 3, 1, False,use_BN),
-            Decoder((n_out+1)*c_2+c_out_num, c_1, 3, 1, False,use_BN),
+            Decoder((n_out+1)*c_2+c_out_num, c_1, 3, 1),
+            Decoder((n_out+1)*c_2+c_out_num, c_1, 3, 1),
+            Decoder((n_out+1)*c_2+c_out_num, c_1, 3, 1),
         ])
         self.decoder1 = nn.ModuleList([
-            Decoder((n_out+1)*c_1+c_out_num, c_0, 3, 1, True, use_BN),
-            Decoder((n_out+1)*c_1+c_out_num, c_0, 3, 1, True, use_BN),
-            Decoder((n_out+1)*c_1+c_out_num, c_0, 3, 1, True, use_BN),
+            Decoder((n_out+1)*c_1+c_out_num, c_0, 3, 1),
+            Decoder((n_out+1)*c_1+c_out_num, c_0, 3, 1),
+            Decoder((n_out+1)*c_1+c_out_num, c_0, 3, 1),
         ])
 
         self.create_output4 = CreateOutput((n_out+1)*c_3, w, 4)
@@ -254,10 +246,6 @@ class CoarseNet(nn.Module):
         opt = self.opt
         n_out = 3
 
-        # upsampling
-        x = nn.functional.interpolate(x, (512,512), mode='bicubic', align_corners=True)
-
-        # encoder
         conv0 = self.encoder0(x)
         conv1 = self.encoder1(conv0)
         conv2 = self.encoder2(conv1)
@@ -266,7 +254,6 @@ class CoarseNet(nn.Module):
         conv5 = self.encoder5(conv4)
         conv6 = self.encoder6(conv5)
 
-        # decoder
         deconv6 = []
         deconv5 = []
         deconv4 = []
@@ -282,18 +269,18 @@ class CoarseNet(nn.Module):
 
         for i in range(n_out):
             deconv5.append(self.decoder5[i](deconv6))
-        deconv5.append(conv4)  # deconv5
+        deconv5.append(conv4) 
 
         for i in range(n_out):
             deconv4.append(self.decoder4[i](deconv5))
-        deconv4.append(conv3)  # deconv4
+        deconv4.append(conv3)
 
         ms_num = opt.ms_num
 
         in_1 = torch.cat(deconv4, dim=1) + self.RIRB1(torch.cat(deconv4, dim=1))
         for i in range(n_out):
             deconv3.append(self.decoder3[i](in_1))
-        deconv3.append(conv2)  # deconv3
+        deconv3.append(conv2)
         
         if ms_num >= 4:
             # scale 4 output
@@ -304,7 +291,7 @@ class CoarseNet(nn.Module):
 
         for i in range(n_out):
             deconv2.append(self.decoder2[i](deconv3))
-        deconv2.append(conv1)  # deconv2
+        deconv2.append(conv1)
 
         if ms_num >= 3:
             # scale 3 output
@@ -317,7 +304,7 @@ class CoarseNet(nn.Module):
 
         for i in range(n_out):
             deconv1.append(self.decoder1[i](in_2))
-        deconv1.append(conv0)  # deconv1
+        deconv1.append(conv0)
 
         if ms_num >= 2:
             # scale 2 output
