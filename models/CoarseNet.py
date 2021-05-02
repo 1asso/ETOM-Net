@@ -67,12 +67,11 @@ class Encoder(nn.Module):
     def __init__(self, in_channels: int, out_channels: int, k: int, step: int) -> None:
         super(Encoder, self).__init__()
         pad = math.floor((k-1)/2)
-        od = []
-        od.append(nn.Conv2d(in_channels, out_channels, k, step, pad))
-        od.append(nn.BatchNorm2d(out_channels))
-        od.append(nn.ReLU(inplace=False))
-        
-        self.encoder = nn.Sequential(*od)
+        self.encoder = nn.Sequential(
+            nn.Conv2d(in_channels, out_channels, k, step, pad),
+            nn.BatchNorm2d(out_channels),
+            nn.ReLU(inplace=False),
+        )
     
     @amp.autocast()
     def forward(self, x: Tensor) -> Tensor:
@@ -83,12 +82,13 @@ class Decoder(nn.Module):
     def __init__(self, in_channels: int, out_channels: int, k: int, step: int) -> None:
         super(Decoder, self).__init__()
         pad = math.floor((k-1)/2)
-        od = []
-        od.append(nn.ConvTranspose2d(in_channels, out_channels, 3, 2, 1, output_padding=1))
-        od.append(nn.BatchNorm2d(out_channels))
-        od.append(nn.ReLU(inplace=False))
+        od = nn.ModuleList()
 
-        self.decoder = nn.Sequential(*od)
+        self.decoder = nn.Sequential(
+            nn.ConvTranspose2d(in_channels, out_channels, 3, 2, 1, output_padding=1),
+            nn.BatchNorm2d(out_channels),
+            nn.ReLU(inplace=False),
+        )
     
     @amp.autocast()
     def forward(self, x: Union[Tensor, List[Tensor]]) -> Tensor:
@@ -141,10 +141,10 @@ class RIRB(nn.Module):
         k = 3
         step = 1
         pad = (k - 1) // 2
-        residuals = []
+        residuals = nn.ModuleList()
         for _ in range(layers):
             residuals.append(Residual_Block(growth_rate, growth_rate))
-        self.residuals = nn.Sequential(*residuals)
+        self.residuals = nn.Sequential(residuals)
         self.conv = nn.Conv2d(growth_rate, growth_rate, k, step, pad)
     
     @amp.autocast()
@@ -200,20 +200,20 @@ class CoarseNet(nn.Module):
 
         layers = 10
 
-        RIRB0 = [RIRB(c_6, layers) for _ in range(4)]
+        RIRB0 = nn.ModuleList([RIRB(c_6, layers) for _ in range(4)])
         RIRB0.append(nn.Conv2d(c_6, c_6, 3, 1, 1))
 
-        self.RIRB0 = nn.Sequential(*RIRB0) 
+        self.RIRB0 = nn.Sequential(RIRB0) 
 
-        RIRB1 = [RIRB((n_out+1)*c_3, layers) for _ in range(2)]
+        RIRB1 = nn.ModuleList([RIRB((n_out+1)*c_3, layers) for _ in range(2)])
         RIRB1.append(nn.Conv2d((n_out+1)*c_3, (n_out+1)*c_3, 3, 1, 1))
 
-        self.RIRB1 = nn.Sequential(*RIRB1) 
+        self.RIRB1 = nn.Sequential(RIRB1) 
 
-        RIRB2 = [RIRB((n_out+1)*c_1+c_out_num, layers) for _ in range(1)]
+        RIRB2 = nn.ModuleList([RIRB((n_out+1)*c_1+c_out_num, layers) for _ in range(1)])
         RIRB2.append(nn.Conv2d((n_out+1)*c_1+c_out_num, (n_out+1)*c_1+c_out_num, 3, 1, 1))
 
-        self.RIRB2 = nn.Sequential(*RIRB2)
+        self.RIRB2 = nn.Sequential(RIRB2)
 
         self.decoder6 = nn.ModuleList([
             Decoder(c_6, c_5, 3, 1),
