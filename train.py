@@ -12,7 +12,6 @@ from checkpoint import CheckPoint
 from torch.cuda import amp
 from torch.optim.lr_scheduler import StepLR
 
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 class Trainer:
     def __init__(self, model: Union[CoarseNet.CoarseNet, RefineNet.RefineNet], 
@@ -55,7 +54,7 @@ class Trainer:
         print('[Rec Loss] Setting up MSELoss for reconstructed image')
         self.rec_criterion = nn.MSELoss
         
-        print('[Mask Loss] Setting up CrossENtropyLoss for mask')
+        print('[Mask Loss] Setting up CrossEntropyLoss for mask')
         self.mask_criterion = nn.CrossEntropyLoss
 
         print('[Rho Loss] Setting up MSELoss for rho')
@@ -76,13 +75,12 @@ class Trainer:
 
     def train(self, epoch: int, dataloader: DataLoader, split: str) -> float:
         gradient_accumulations = self.opt.ga
+        torch.autograd.set_detect_anomaly(True)
 
         scaler = amp.GradScaler()
         split = split or 'train'
         num_batches = len(dataloader)
         
-        self.optimizer.zero_grad()
-
         print('\n====================')
         print(self.optim_state)
         print(f'Training epoch # {epoch+1}, totaling mini batches {num_batches}')
@@ -101,14 +99,10 @@ class Trainer:
 
             for iter, sample in enumerate(dataloader):
                 input = self.setup_inputs(sample)
-                input = input.to(device)
                 torch.cuda.empty_cache()
-                torch.autograd.set_detect_anomaly(True)
 
                 with amp.autocast():
-
                     output = self.model.forward(input)     
-
                     pred_images = self.single_flow_warping(output) # warp input image with flow
 
                     flow_loss = self.flow_criterion()(output[0], self.flows, self.masks.unsqueeze(1)) 
@@ -147,25 +141,24 @@ class Trainer:
 
             for iter, sample in enumerate(dataloader):
                 input = self.setup_inputs(sample)
-                input = input.to(device)
-
                 torch.cuda.empty_cache()
-                torch.autograd.set_detect_anomaly(True)
                     
                 with amp.autocast():
-
                     output = self.model.forward(input)     
-
                     pred_images = self.flow_warping(output) # warp input image with flow
 
                     loss = None
 
                     for i in range(self.opt.ms_num):
 
-                        mask_loss = self.opt.mask_w * self.mask_criterion()(output[i][1], self.multi_masks[i].squeeze(1).long()) * (1 / 2 ** (self.opt.ms_num - i - 1)) + 1e-16
-                        rho_loss = self.opt.rho_w * self.rho_criterion()(output[i][2], self.multi_rhos[i]) * (1 / 2 ** (self.opt.ms_num - i - 1)) + 1e-16
-                        flow_loss = self.opt.flow_w * self.flow_criterion()(output[i][0], self.multi_flows[i], self.multi_masks[i]) * (1 / 2 ** (self.opt.ms_num - i - 1)) + 1e-16
-                        rec_loss = self.opt.img_w * self.rec_criterion()(pred_images[i], self.multi_tar_images[i]) * (1 / 2 ** (self.opt.ms_num - i - 1)) + 1e-16
+                        mask_loss = self.opt.mask_w * self.mask_criterion()(\
+                                output[i][1], self.multi_masks[i].squeeze(1).long()) * (1 / 2 ** (self.opt.ms_num - i - 1))
+                        rho_loss = self.opt.rho_w * self.rho_criterion()(\
+                                output[i][2], self.multi_rhos[i]) * (1 / 2 ** (self.opt.ms_num - i - 1))
+                        flow_loss = self.opt.flow_w * self.flow_criterion()(\
+                                output[i][0], self.multi_flows[i], self.multi_masks[i]) * (1 / 2 ** (self.opt.ms_num - i - 1))
+                        rec_loss = self.opt.img_w * self.rec_criterion()(\
+                                pred_images[i], self.multi_tar_images[i]) * (1 / 2 ** (self.opt.ms_num - i - 1))
 
                         if i == 0:
                             loss = mask_loss + rho_loss + flow_loss + rec_loss
@@ -328,14 +321,10 @@ class Trainer:
 
             for iter, sample in enumerate(dataloader):
                 input = self.setup_inputs(sample)
-                input = input.to(device)
-
                 torch.cuda.empty_cache()
-                torch.autograd.set_detect_anomaly(True)
 
                 with amp.autocast():
                     output = self.model.forward(input)     
-
                     pred_images = self.single_flow_warping(output) # warp input image with flow
 
                     flow_loss = self.flow_criterion()(output[0], self.flows, self.masks.unsqueeze(1)) 
@@ -364,10 +353,8 @@ class Trainer:
             for iter, sample in enumerate(dataloader):
 
                 with torch.no_grad():
-
                     torch.cuda.empty_cache()
                     input = self.setup_inputs(sample)
-                    input = input.to(device)
                     
                     with amp.autocast():
                         output = self.model.forward(input)
@@ -377,10 +364,14 @@ class Trainer:
 
                         for i in range(self.opt.ms_num):
 
-                            mask_loss = self.opt.mask_w * self.mask_criterion()(output[i][1], self.multi_masks[i].squeeze(1).long()) * (1 / 2 ** (self.opt.ms_num - i - 1))
-                            rho_loss = self.opt.rho_w * self.rho_criterion()(output[i][2], self.multi_rhos[i]) * (1 / 2 ** (self.opt.ms_num - i - 1))
-                            flow_loss = self.opt.flow_w * self.flow_criterion()(output[i][0], self.multi_flows[i], self.multi_masks[i]) * (1 / 2 ** (self.opt.ms_num - i - 1))
-                            rec_loss = self.opt.img_w * self.rec_criterion()(pred_images[i], self.multi_tar_images[i]) * (1 / 2 ** (self.opt.ms_num - i - 1))
+                            mask_loss = self.opt.mask_w * self.mask_criterion()(\
+                                    output[i][1], self.multi_masks[i].squeeze(1).long()) * (1 / 2 ** (self.opt.ms_num - i - 1))
+                            rho_loss = self.opt.rho_w * self.rho_criterion()(\
+                                    output[i][2], self.multi_rhos[i]) * (1 / 2 ** (self.opt.ms_num - i - 1))
+                            flow_loss = self.opt.flow_w * self.flow_criterion()(\
+                                    output[i][0], self.multi_flows[i], self.multi_masks[i]) * (1 / 2 ** (self.opt.ms_num - i - 1))
+                            rec_loss = self.opt.img_w * self.rec_criterion()(\
+                                    pred_images[i], self.multi_tar_images[i]) * (1 / 2 ** (self.opt.ms_num - i - 1))
 
                             loss_iter[f'Scale {i} mask'] += mask_loss.item() 
                             loss_iter[f'Scale {i} rho'] += rho_loss.item()
@@ -425,19 +416,12 @@ class Trainer:
         return network_input
 
     def copy_inputs(self, sample: dict) -> None:
-        del self.ref_images
-        del self.tar_images
-        del self.masks
-        del self.rhos
-        del self.flows
-        del self.input_image
-
-        self.input_image = torch.cuda.FloatTensor().to(device)
-        self.ref_images = torch.cuda.FloatTensor().to(device)
-        self.tar_images = torch.cuda.FloatTensor().to(device)
-        self.masks = torch.cuda.FloatTensor().to(device)
-        self.rhos = torch.cuda.FloatTensor().to(device)
-        self.flows = torch.cuda.FloatTensor().to(device)
+        self.input_image = torch.cuda.FloatTensor()
+        self.ref_images = torch.cuda.FloatTensor()
+        self.tar_images = torch.cuda.FloatTensor()
+        self.masks = torch.cuda.FloatTensor()
+        self.rhos = torch.cuda.FloatTensor()
+        self.flows = torch.cuda.FloatTensor()
 
         n, c, h, w = list(sample['images'].size())
         sh, sw = list(sample['input'].size()[2:])

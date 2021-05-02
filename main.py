@@ -12,10 +12,6 @@ import utility
 
 
 if __name__ == "__main__":
-    
-    torch.set_default_tensor_type(torch.FloatTensor)
-    torch.set_num_threads(1)
-
     loaders = create(args)
     check_p, optim_state = CheckPoint.latest(args)
     model = setup(args, check_p)
