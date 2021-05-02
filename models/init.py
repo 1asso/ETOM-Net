@@ -5,7 +5,8 @@ from torch import nn
 
 def setup(opt, checkpoint):
     if checkpoint:
-        model = checkpoint['model']
+        model = checkpoint['model'].cuda(0)
+        return model
     elif opt.retrain:
         assert os.path.exists(opt.retrain), f'Model not found: {opt.retrain}'
         print(f'\n\n --> [Retrain] Loading model from: models/{opt.retrain}')
