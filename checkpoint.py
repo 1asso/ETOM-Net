@@ -52,7 +52,7 @@ class CheckPoint:
         checkpoint['opt'] = opt
         checkpoint['epoch'] = epoch
         checkpoint['model'] = model
-        suffix = str(epoch_num)
+        suffix = str(epoch)
 
         if not os.path.exists(opt.save):
             os.makedirs(opt.save)

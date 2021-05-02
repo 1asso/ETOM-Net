@@ -94,9 +94,9 @@ parser.add_argument('--train_save', type=int, default=100,
                     help='iteration to save train results')
 parser.add_argument('--val_interval', type=int, default=1,
                     help='epoch to do validation')
-parser.add_argument('--val_display', type=int, default=5,
+parser.add_argument('--val_display', type=int, default=1,
                     help='iteration to display val loss')
-parser.add_argument('--val_save', type=int, default=5,
+parser.add_argument('--val_save', type=int, default=1,
                     help='iteration to save val results')
 parser.add_argument('--val_only', action='store_true',
                     help='run on validation set only')

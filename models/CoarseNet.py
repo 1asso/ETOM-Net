@@ -5,6 +5,7 @@ from typing import Type, Any, Callable, Union, List, Optional
 from collections import OrderedDict
 import math
 from argparse import Namespace
+from torch.cuda import amp
 
 
 class CreateOutput(nn.Module):
@@ -12,18 +13,25 @@ class CreateOutput(nn.Module):
         super(CreateOutput, self).__init__()
         self.ratio = w / 2 ** (scale-1)
         self.sub_pixel1 = nn.Sequential(
+            nn.Conv2d(in_channels, in_channels, kernel_size=3, stride=1, padding=1),
+            nn.Tanh(),
             nn.Conv2d(in_channels, 2 * 4, kernel_size=3, stride=1, padding=1),
             nn.PixelShuffle(2),
         )
         self.sub_pixel2 = nn.Sequential(
+            nn.Conv2d(in_channels, in_channels, kernel_size=3, stride=1, padding=1),
+            nn.Tanh(),
             nn.Conv2d(in_channels, 2 * 4, kernel_size=3, stride=1, padding=1),
             nn.PixelShuffle(2),
         )
         self.sub_pixel3 = nn.Sequential(
+            nn.Conv2d(in_channels, in_channels, kernel_size=3, stride=1, padding=1),
+            nn.Tanh(),
             nn.Conv2d(in_channels, 1 * 4, kernel_size=3, stride=1, padding=1),
             nn.PixelShuffle(2),
         )
 
+    @amp.autocast()
     def forward(self, x: List[Tensor]) -> List[Tensor]:
         if type(x) != Tensor:
             x = torch.cat(x, dim=1) 
@@ -44,6 +52,7 @@ class NormalizeOutput(nn.Module):
         self.ratio = 2.0 ** (scale-1) / w
         self.sm = nn.Softmax(dim=1)
 
+    @amp.autocast()
     def forward(self, x: List[Tensor]) -> Tensor:
         # input should be a list: [flow, mask, rho]
 
@@ -64,7 +73,8 @@ class Encoder(nn.Module):
         od.append(nn.ReLU(inplace=False))
         
         self.encoder = nn.Sequential(*od)
-
+    
+    @amp.autocast()
     def forward(self, x: Tensor) -> Tensor:
         return self.encoder(x)
 
@@ -74,13 +84,13 @@ class Decoder(nn.Module):
         super(Decoder, self).__init__()
         pad = math.floor((k-1)/2)
         od = []
-        od.append(nn.Conv2d(in_channels, out_channels, k, step, pad))
+        od.append(nn.ConvTranspose2d(in_channels, out_channels, 3, 2, 1, output_padding=1))
         od.append(nn.BatchNorm2d(out_channels))
         od.append(nn.ReLU(inplace=False))
-        od.append(nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True))
-        
-        self.decoder = nn.Sequential(*od)
 
+        self.decoder = nn.Sequential(*od)
+    
+    @amp.autocast()
     def forward(self, x: Union[Tensor, List[Tensor]]) -> Tensor:
         if type(x) != Tensor:
             x = torch.cat(x, dim=1) 
@@ -98,7 +108,8 @@ class RCAB(nn.Module):
             nn.Conv2d(channels // reduction, channels, 1),
             nn.Sigmoid(),
         )
-		
+    
+    @amp.autocast()
     def forward(self, x: Tensor) -> Tensor:
         y = self.conv(self.avg_pool(x))
         return x * y
@@ -116,7 +127,8 @@ class Residual_Block(nn.Module):
             nn.Conv2d(growth_rate, growth_rate, k, step, pad),
             RCAB(in_channels, 16),
         )
-
+    
+    @amp.autocast()
     def forward(self, x: Tensor) -> Tensor:
         out = self.conv(x)
         out += x
@@ -134,7 +146,8 @@ class RIRB(nn.Module):
             residuals.append(Residual_Block(growth_rate, growth_rate))
         self.residuals = nn.Sequential(*residuals)
         self.conv = nn.Conv2d(growth_rate, growth_rate, k, step, pad)
-	
+    
+    @amp.autocast()
     def forward(self, x: Tensor) -> Tensor:
         x = self.conv(self.residuals(x)) + x
         return x
@@ -242,6 +255,7 @@ class CoarseNet(nn.Module):
         self.normalize_output3 = NormalizeOutput(w, 3)
         self.normalize_output2 = NormalizeOutput(w, 2)
 
+    @amp.autocast()
     def forward(self, x: Tensor) -> List[List[Tensor]]:
         opt = self.opt
         n_out = 3
@@ -301,7 +315,6 @@ class CoarseNet(nn.Module):
             results.append(s3_out)
 
         in_2 = torch.cat(deconv2, dim=1) + self.RIRB2(torch.cat(deconv2, dim=1))
-
         for i in range(n_out):
             deconv1.append(self.decoder1[i](in_2))
         deconv1.append(conv0)
