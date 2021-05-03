@@ -148,17 +148,18 @@ class Trainer:
                     pred_images = self.flow_warping(output) # warp input image with flow
 
                     loss = None
+                    epsilon = 1e-16
 
                     for i in range(self.opt.ms_num):
 
                         mask_loss = self.opt.mask_w * self.mask_criterion()(output[i][1], \
-                                self.multi_masks[i].squeeze(1).long()) * (1 / 2 ** (self.opt.ms_num - i - 1)) + 1e-16
+                                self.multi_masks[i].squeeze(1).long()) * (1 / 2 ** (self.opt.ms_num - i - 1)) + epsilon
                         rho_loss = self.opt.rho_w * self.rho_criterion()(output[i][2], \
-                                self.multi_rhos[i]) * (1 / 2 ** (self.opt.ms_num - i - 1)) + 1e-16
+                                self.multi_rhos[i]) * (1 / 2 ** (self.opt.ms_num - i - 1)) + epsilon
                         flow_loss = self.opt.flow_w * self.flow_criterion()(output[i][0], \
-                                self.multi_flows[i], self.multi_masks[i]) * (1 / 2 ** (self.opt.ms_num - i - 1)) + 1e-16
+                                self.multi_flows[i], self.multi_masks[i]) * (1 / 2 ** (self.opt.ms_num - i - 1)) + epsilon
                         rec_loss = self.opt.img_w * self.rec_criterion()(pred_images[i], \
-                                self.multi_tar_images[i]) * (1 / 2 ** (self.opt.ms_num - i - 1)) + 1e-16
+                                self.multi_tar_images[i]) * (1 / 2 ** (self.opt.ms_num - i - 1)) + epsilon
 
                         if i == 0:
                             loss = mask_loss + rho_loss + flow_loss + rec_loss
