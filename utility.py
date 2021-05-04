@@ -289,7 +289,9 @@ class EPELoss(nn.Module):
         pred = pred * mask
         target = target * mask
 
-        return torch.norm(target-pred, dim=1).mean()
+        eps = torch.finfo(torch.float32).eps
+
+        return torch.norm(target-pred+eps, dim=1).mean()
 
 
 def get_final_pred(ref_img: Tensor, pred_img: Tensor, pred_mask: Tensor, pred_rho: Tensor) -> Tensor:

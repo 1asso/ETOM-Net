@@ -12,7 +12,6 @@ from checkpoint import CheckPoint
 from torch.cuda import amp
 from torch.optim.lr_scheduler import StepLR
 
-eps = torch.finfo(torch.float32).eps
 
 class Trainer:
     def __init__(self, model: Union[CoarseNet.CoarseNet, RefineNet.RefineNet], 
@@ -92,6 +91,7 @@ class Trainer:
         loss_iter = {} # loss every n iterations
         loss_epoch = {} # loss of the entire epoch
         average_loss = ''
+        eps = torch.finfo(torch.float32).eps
 
         if self.opt.refine:
             loss_iter['mask'] = 0
@@ -106,9 +106,9 @@ class Trainer:
                     output = self.model.forward(input)     
                     pred_images = self.single_flow_warping(output) # warp input image with flow
 
-                    flow_loss = self.flow_criterion()(output[0], self.flows, self.masks.unsqueeze(1)) + eps 
-                    mask_loss = self.mask_criterion()(output[1], self.masks.squeeze(1).long()) + eps
-                    rho_loss = self.rho_criterion()(output[2], self.rhos.unsqueeze(1)) + eps
+                    flow_loss = self.flow_criterion()(output[0], self.flows, self.masks.unsqueeze(1))
+                    mask_loss = self.mask_criterion()(output[1] + eps, self.masks.squeeze(1).long())
+                    rho_loss = self.rho_criterion()(output[2], self.rhos.unsqueeze(1))
 
                     loss = flow_loss + mask_loss + rho_loss
                 
@@ -152,14 +152,14 @@ class Trainer:
 
                     for i in range(self.opt.ms_num):
 
-                        mask_loss = self.opt.mask_w * self.mask_criterion()(output[i][1], \
-                                self.multi_masks[i].squeeze(1).long()) * (1 / 2 ** (self.opt.ms_num - i - 1)) + eps
+                        mask_loss = self.opt.mask_w * self.mask_criterion()(output[i][1] + eps, \
+                                self.multi_masks[i].squeeze(1).long()) * (1 / 2 ** (self.opt.ms_num - i - 1))
                         rho_loss = self.opt.rho_w * self.rho_criterion()(output[i][2], \
-                                self.multi_rhos[i]) * (1 / 2 ** (self.opt.ms_num - i - 1)) + eps
+                                self.multi_rhos[i]) * (1 / 2 ** (self.opt.ms_num - i - 1))
                         flow_loss = self.opt.flow_w * self.flow_criterion()(output[i][0], \
-                                self.multi_flows[i], self.multi_masks[i]) * (1 / 2 ** (self.opt.ms_num - i - 1)) + eps
+                                self.multi_flows[i], self.multi_masks[i]) * (1 / 2 ** (self.opt.ms_num - i - 1))
                         rec_loss = self.opt.img_w * self.rec_criterion()(pred_images[i], \
-                                self.multi_tar_images[i]) * (1 / 2 ** (self.opt.ms_num - i - 1)) + eps
+                                self.multi_tar_images[i]) * (1 / 2 ** (self.opt.ms_num - i - 1))
 
                         if i == 0:
                             loss = mask_loss + rho_loss + flow_loss + rec_loss

@@ -8,7 +8,6 @@ import pandas as pd
 from PIL import Image
 import torchvision.transforms.functional as TF
 from torchvision import transforms
-import random
 import torch.nn.functional as F
 from torch.distributions.uniform import Uniform
 import cv2

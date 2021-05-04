@@ -12,6 +12,9 @@ import utility
 
 
 if __name__ == "__main__":
+    torch.manual_seed(0)
+    np.random.seed(0)
+
     loaders = create(args)
     check_p, optim_state = CheckPoint.latest(args)
     model = setup(args, check_p)
