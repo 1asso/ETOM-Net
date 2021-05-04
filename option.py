@@ -52,7 +52,7 @@ parser.add_argument('--ga', type=int, default=1,
                     help='gradient accumulations')
 parser.add_argument('--batch_size', type=int, default=16,
                     help='mini-batch size')
-parser.add_argument('--lr', type=float, default=0.001,
+parser.add_argument('--lr', type=float, default=0.0005,
                     help='initial learning rate')
 parser.add_argument('--solver', type=str, default='ADAM',
                     help='solver used(Adam only)')
