@@ -43,6 +43,8 @@ class CheckPoint:
         print('=> [Resume] Loading Optim state: ' + optim_state_path)
         checkpoint = torch.load(checkpoint_path, map_location='cpu')
         optim_state = torch.load(optim_state_path, map_location='cpu')
+        if opt.retrain:
+            optim_state['lr'] = opt.lr
         return checkpoint, optim_state
 
     def save(opt: Namespace, model: CoarseNet, optim_state: dict, epoch: int) -> None:

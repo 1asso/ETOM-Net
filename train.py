@@ -23,7 +23,8 @@ class Trainer:
         self.multi_scale_data = self.setup_ms_data_module()
         self.optim_state = self.setup_solver(optim_state) 
         self.setup_criterions()
-        self.optimizer = torch.optim.Adam(self.model.parameters(), **(self.optim_state), weight_decay=0.01)
+        self.optimizer = torch.optim.Adam(self.model.parameters(), **(self.optim_state), \
+                weight_decay=0.01, eps = torch.finfo(torch.float32).eps)
         self.scheduler = StepLR(self.optimizer, step_size=5, gamma=0.5)
         
         print('\n\n --> Total number of parameters in ETOM-Net: ' + str(sum(p.numel() for p in self.model.parameters())))
@@ -173,6 +174,8 @@ class Trainer:
 
                 # Perform a backward pass
                 scaler.scale(loss / gradient_accumulations).backward()
+
+                nn.utils.clip_grad_value_(self.model.parameters(), clip_value=100)
 
                 # Update the weights
                 if (iter + 1) % gradient_accumulations == 0:
