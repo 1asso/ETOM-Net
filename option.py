@@ -1,9 +1,9 @@
 import os
 import argparse
 import numpy as np
-import time
-import datetime
 from typing import Tuple
+import torch
+import datetime
 
 def get_save_dir_name(args: argparse.Namespace) -> Tuple[str, str]:
     now = datetime.datetime.now()
@@ -53,7 +53,7 @@ parser.add_argument('--n_epochs', type=int, default=30,
                     help='number of total epochs to run')
 parser.add_argument('--ga', type=int, default=1,
                     help='gradient accumulations')
-parser.add_argument('--batch_size', type=int, default=32,
+parser.add_argument('--batch_size', type=int, default=8,
                     help='mini-batch size')
 parser.add_argument('--lr', type=float, default=0.0005,
                     help='initial learning rate')
@@ -115,9 +115,9 @@ parser.add_argument('--val_only', action='store_true',
 
 args = parser.parse_args()
 
-args.use_BN = True  # use batch norm
+args.batch_size *= torch.cuda.device_count()
+print("\n\n --> Let's use", torch.cuda.device_count(), "GPUs!")
 
-args.start_time = time.time()
 args.log_dir, args.save = get_save_dir_name(args)
 
 if not os.path.isdir(args.log_dir):

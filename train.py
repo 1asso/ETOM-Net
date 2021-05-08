@@ -10,6 +10,8 @@ from models import CoarseNet, RefineNet
 from argparse import Namespace
 from checkpoint import CheckPoint
 import torch.nn.functional as F
+from torch.optim.lr_scheduler import StepLR
+
 
 class Trainer:
     def __init__(self, model: Union[CoarseNet.CoarseNet, RefineNet.RefineNet], 
@@ -21,6 +23,9 @@ class Trainer:
         self.multi_scale_data = self.setup_ms_data_module()
         self.optim_state = self.setup_solver(optim_state) 
         self.setup_criterions()
+        self.optimizer = torch.optim.Adam(self.model.parameters(), **(self.optim_state), \
+                                weight_decay=0.01)
+        self.scheduler = StepLR(self.optimizer, step_size=5, gamma=0.5)
         
         print('\n\n --> Total number of parameters in ETOM-Net: ' + str(sum(p.numel() for p in self.model.parameters())))
 
@@ -72,8 +77,6 @@ class Trainer:
     def train(self, epoch: int, dataloader: DataLoader, split: str) -> float:
         gradient_accumulations = self.opt.ga
 
-        split = split or 'train'
-        self.optim_state['lr'] = self.update_lr(epoch)
         num_batches = len(dataloader)
         print('\n====================')
         print(self.optim_state)
@@ -82,12 +85,12 @@ class Trainer:
 
         self.model.train()
         
-        loss_iter = {} # loss every 20 iterations
+        loss_iter = {} # loss every n iterations
         loss_epoch = {} # loss of the entire epoch
+        eps = 1e-7
 
-        optimizer = torch.optim.Adam(self.model.parameters(), **(self.optim_state), weight_decay=0.01)
         # Zero gradients
-        optimizer.zero_grad()
+        self.optimizer.zero_grad()
 
         if self.opt.refine:
             loss_iter['mask'] = 0
@@ -105,7 +108,7 @@ class Trainer:
                 pred_images = self.single_flow_warping(output) # warp input image with flow
 
                 flow_loss = self.flow_criterion()(output[0], self.flows, self.masks.unsqueeze(1)) 
-                mask_loss = self.mask_criterion()(output[1], self.masks.squeeze(1).long()) 
+                mask_loss = self.mask_criterion()(output[1] + eps, self.masks.squeeze(1).long()) 
                 rho_loss = self.rho_criterion()(output[2], self.rhos.unsqueeze(1))
 
                 loss = flow_loss + mask_loss + rho_loss
@@ -119,8 +122,8 @@ class Trainer:
 
                 # Update the weights
                 if (iter + 1) % gradient_accumulations == 0:
-                    optimizer.step()
-                    optimizer.zero_grad()
+                    self.optimizer.step()
+                    self.optimizer.zero_grad()
 
                 if (iter+1) % self.opt.train_display == 0:
                     loss_epoch[iter] = self.display(epoch+1, iter+1, num_batches, loss_iter, split)
@@ -130,73 +133,71 @@ class Trainer:
 
                 if (iter+1) % self.opt.train_save == 0:
                     self.save_results(epoch+1, iter+1, output, pred_images, split, 0)
-            
-            average_loss = utility.build_loss_string(utility.dict_of_dict_average(loss_epoch))
-            print(f'\n\n --> Epoch: [{epoch+1}] Loss summary: \n{average_loss}')
-            return average_loss
-
-        for i in range(self.opt.ms_num):
-            loss_iter[f'Scale {i} mask'] = 0
-            loss_iter[f'Scale {i} rho'] = 0
-            loss_iter[f'Scale {i} flow'] = 0
-            loss_iter[f'Scale {i} rec'] = 0
-        #loss_iter['sr'] = 0
-
-
-        for iter, sample in enumerate(dataloader):
-            input = self.setup_inputs(sample)
-            
-            torch.cuda.empty_cache()
-            torch.autograd.set_detect_anomaly(True)
-
-            output = self.model.forward(input)     
-
-            pred_images = self.flow_warping(output) # warp input image with flow
-
-            loss = None
-
+        else:
             for i in range(self.opt.ms_num):
+                loss_iter[f'Scale {i} mask'] = 0
+                loss_iter[f'Scale {i} rho'] = 0
+                loss_iter[f'Scale {i} flow'] = 0
+                loss_iter[f'Scale {i} rec'] = 0
 
-                mask_loss = self.opt.mask_w * self.mask_criterion()(output[i][1], self.multi_masks[i].squeeze(1).long()) * (1 / 2 ** (self.opt.ms_num - i - 1)) + 1e-16
-                rho_loss = self.opt.rho_w * self.rho_criterion()(output[i][2], self.multi_rhos[i]) * (1 / 2 ** (self.opt.ms_num - i - 1)) + 1e-16
-                flow_loss = self.opt.flow_w * self.flow_criterion()(output[i][0], self.multi_flows[i], self.multi_masks[i], self.multi_rhos[i]) * (1 / 2 ** (self.opt.ms_num - i - 1)) + 1e-16
-                rec_loss = self.opt.img_w * self.rec_criterion()(pred_images[i], self.multi_tar_images[i]) * (1 / 2 ** (self.opt.ms_num - i - 1)) + 1e-16
 
-                if i == 0:
-                    loss = mask_loss + rho_loss + flow_loss + rec_loss
-                else:
-                    loss += mask_loss + rho_loss + flow_loss + rec_loss
+            for iter, sample in enumerate(dataloader):
+                input = self.setup_inputs(sample)
                 
-                loss_iter[f'Scale {i} mask'] += mask_loss.item() 
-                loss_iter[f'Scale {i} rho'] += rho_loss.item()
-                loss_iter[f'Scale {i} flow'] += flow_loss.item()
-                loss_iter[f'Scale {i} rec'] += rec_loss.item()
+                torch.cuda.empty_cache()
+                torch.autograd.set_detect_anomaly(True)
 
-            #sr_loss = self.opt.sr_w * self.sr_criterion()(output[self.opt.ms_num], self.multi_tar_images[self.opt.ms_num-1])
-            #loss += sr_loss
-            #loss_iter['sr'] += sr_loss.item()
+                output = self.model.forward(input)     
 
-            # Perform a backward pass
-            (loss / gradient_accumulations).backward()
+                pred_images = self.flow_warping(output) # warp input image with flow
 
-            # Update the weights
-            if (iter + 1) % gradient_accumulations == 0:
-                optimizer.step()
-                optimizer.zero_grad()
+                loss = None
 
-            if (iter+1) % self.opt.train_display == 0:
-                loss_epoch[iter] = self.display(epoch+1, iter+1, num_batches, loss_iter, split)
                 for i in range(self.opt.ms_num):
-                    loss_iter[f'Scale {i} mask'] = 0
-                    loss_iter[f'Scale {i} rho'] = 0
-                    loss_iter[f'Scale {i} flow'] = 0
-                    loss_iter[f'Scale {i} rec'] = 0
+                    
+                    mask_loss = self.opt.mask_w * self.mask_criterion()(output[i][1] + eps, \
+                            self.multi_masks[i].squeeze(1).long()) * (1 / 2 ** (self.opt.ms_num - i - 1))
+                    rho_loss = self.opt.rho_w * self.rho_criterion()(output[i][2], \
+                            self.multi_rhos[i]) * (1 / 2 ** (self.opt.ms_num - i - 1))
+                    flow_loss = self.opt.flow_w * self.flow_criterion()(output[i][0], \
+                            self.multi_flows[i], self.multi_masks[i], self.multi_rhos[i]) * (1 / 2 ** (self.opt.ms_num - i - 1))
+                    rec_loss = self.opt.img_w * self.rec_criterion()(pred_images[i], \
+                            self.multi_tar_images[i]) * (1 / 2 ** (self.opt.ms_num - i - 1))
+                    
+                    if i == 0:
+                        loss = mask_loss + rho_loss + flow_loss + rec_loss
+                    else:
+                        loss += mask_loss + rho_loss + flow_loss + rec_loss
+                    
+                    loss_iter[f'Scale {i} mask'] += mask_loss.item() 
+                    loss_iter[f'Scale {i} rho'] += rho_loss.item()
+                    loss_iter[f'Scale {i} flow'] += flow_loss.item()
+                    loss_iter[f'Scale {i} rec'] += rec_loss.item()
 
-            if (iter+1) % self.opt.train_save == 0:
-                self.save_ms_results(epoch+1, iter+1, output, pred_images, split, 0)
+                # Perform a backward pass
+                (loss / gradient_accumulations).backward()
+                
+                # Update the weights
+                if (iter + 1) % gradient_accumulations == 0:
+                    self.optimizer.step()
+                    self.optimizer.zero_grad()
+
+                if (iter+1) % self.opt.train_display == 0:
+                    loss_epoch[iter] = self.display(epoch+1, iter+1, num_batches, loss_iter, split)
+                    for i in range(self.opt.ms_num):
+                        loss_iter[f'Scale {i} mask'] = 0
+                        loss_iter[f'Scale {i} rho'] = 0
+                        loss_iter[f'Scale {i} flow'] = 0
+                        loss_iter[f'Scale {i} rec'] = 0
+
+                if (iter+1) % self.opt.train_save == 0:
+                    self.save_ms_results(epoch+1, iter+1, output, pred_images, split, 0)
         
         average_loss = utility.build_loss_string(utility.dict_of_dict_average(loss_epoch))
         print(f'\n\n --> Epoch: [{epoch+1}] Loss summary: \n{average_loss}')
+        self.scheduler.step()
+        self.optim_state['lr'] = self.optimizer.param_groups[0]['lr']
+        
         return average_loss
 
     def get_saving_name(self, log_dir: str, split: str, epoch: int, iter: int, id: int) -> str:
@@ -291,7 +292,6 @@ class Trainer:
         save_name = self.get_saving_name(self.opt.log_dir, split, epoch, iter, id)
         utility.save_compact_results(save_name, results, 6)
 
-    # for image reconstruction loss and image warping
     def flow_warping(self, output: List[List[Tensor]]) -> List[Tensor]:
         flows = []
         for i in range(self.opt.ms_num):
@@ -338,83 +338,88 @@ class Trainer:
             loss_iter['flow'] = 0
 
             for iter, sample in enumerate(dataloader):
-                input = self.setup_inputs(sample)
-                
-                torch.cuda.empty_cache()
-                torch.autograd.set_detect_anomaly(True)
 
-                output = self.model.forward(input)     
+                with torch.no_grad():
+                    input = self.setup_inputs(sample)
+                    
+                    torch.cuda.empty_cache()
+                    torch.autograd.set_detect_anomaly(True)
 
-                pred_images = self.single_flow_warping(output) # warp input image with flow
+                    output = self.model.forward(input)     
 
-                flow_loss = self.flow_criterion()(output[0], self.flows, self.masks.unsqueeze(1)) 
-                mask_loss = self.mask_criterion()(output[1], self.masks.squeeze(1).long()) 
-                rho_loss = self.rho_criterion()(output[2], self.rhos.unsqueeze(1))
-                
-                loss_iter['mask'] += mask_loss.item() 
-                loss_iter['rho'] += rho_loss.item()
-                loss_iter['flow'] += flow_loss.item()
+                    pred_images = self.single_flow_warping(output) # warp input image with flow
 
-                if (iter+1) % self.opt.val_display == 0:
-                    loss_epoch[iter] = self.display(epoch+1, iter+1, num_batches, loss_iter, split)
-                    loss_iter['mask'] = 0
-                    loss_iter['rho'] = 0
-                    loss_iter['flow'] = 0
+                    flow_loss = self.flow_criterion()(output[0], self.flows, self.masks.unsqueeze(1)) 
+                    mask_loss = self.mask_criterion()(output[1], self.masks.squeeze(1).long()) 
+                    rho_loss = self.rho_criterion()(output[2], self.rhos.unsqueeze(1))
+                    
+                    loss_iter['mask'] += mask_loss.item() 
+                    loss_iter['rho'] += rho_loss.item()
+                    loss_iter['flow'] += flow_loss.item()
 
-                if (iter+1) % self.opt.val_save == 0:
-                    self.save_results(epoch+1, iter+1, output, pred_images, split, 0)
-            
-            average_loss = utility.build_loss_string(utility.dict_of_dict_average(loss_epoch))
-            print(f'\n\n --> Epoch: [{epoch+1}] Loss summary: \n{average_loss}')
-            return average_loss
+                    if (iter+1) % self.opt.val_display == 0:
+                        loss_epoch[iter] = self.display(epoch+1, iter+1, num_batches, loss_iter, split)
+                        loss_iter['mask'] = 0
+                        loss_iter['rho'] = 0
+                        loss_iter['flow'] = 0
 
-        for i in range(self.opt.ms_num):
-            loss_iter[f'Scale {i} mask'] = 0
-            loss_iter[f'Scale {i} rho'] = 0
-            loss_iter[f'Scale {i} flow'] = 0
-            loss_iter[f'Scale {i} rec'] = 0
-        #loss_iter['sr'] = 0
+                    if (iter+1) % self.opt.val_save == 0:
+                        self.save_results(epoch+1, iter+1, output, pred_images, split, 0)
+        else:
+            for i in range(self.opt.ms_num):
+                loss_iter[f'Scale {i} mask'] = 0
+                loss_iter[f'Scale {i} rho'] = 0
+                loss_iter[f'Scale {i} flow'] = 0
+                loss_iter[f'Scale {i} rec'] = 0
 
-        for iter, sample in enumerate(dataloader):
+            for iter, sample in enumerate(dataloader):
 
-            with torch.no_grad():
+                with torch.no_grad():
 
-                torch.cuda.empty_cache()
+                    torch.cuda.empty_cache()
 
-                input = self.setup_inputs(sample)
-                output = self.model.forward(input)
-                pred_images = self.flow_warping(output) # warp input image with flow
+                    input = self.setup_inputs(sample)
+                    torch.cuda.empty_cache()
+                    torch.autograd.set_detect_anomaly(True)
 
-                loss = None
+                    output = self.model.forward(input)
+                    pred_images = self.flow_warping(output) # warp input image with flow
 
-                for i in range(output[-1][0].size(0)):
-                    rec_err += 100 * F.mse_loss(pred_images[-1][i], self.multi_tar_images[-1][i])
-                    rho_err += 100 * F.mse_loss(output[-1][2][i], self.multi_rhos[-1][i])
-                    flow_err += epe(self.multi_masks[-1][i], self.multi_flows[-1][i][0:2, :, :] * self.multi_rhos[-1][i], output[-1][0][i] * self.multi_rhos[-1][i])
-                    mask_err += iou(output[-1][1][i], self.multi_masks[-1][i])
+                    loss = None
 
-                for i in range(self.opt.ms_num):
+                    for i in range(output[-1][0].size(0)):
+                        rec_err += 100 * F.mse_loss(pred_images[-1][i], self.multi_tar_images[-1][i])
+                        rho_err += 100 * F.mse_loss(output[-1][2][i], self.multi_rhos[-1][i])
+                        flow_err += epe(self.multi_masks[-1][i], self.multi_flows[-1][i][0:2, :, :] * \
+                                self.multi_rhos[-1][i], output[-1][0][i] * self.multi_rhos[-1][i])
+                        mask_err += iou(output[-1][1][i], self.multi_masks[-1][i])
 
-                    mask_loss = self.opt.mask_w * self.mask_criterion()(output[i][1], self.multi_masks[i].squeeze(1).long()) * (1 / 2 ** (self.opt.ms_num - i - 1))
-                    rho_loss = self.opt.rho_w * self.rho_criterion()(output[i][2], self.multi_rhos[i]) * (1 / 2 ** (self.opt.ms_num - i - 1))
-                    flow_loss = self.opt.flow_w * self.flow_criterion()(output[i][0], self.multi_flows[i], self.multi_masks[i], self.multi_rhos[i]) * (1 / 2 ** (self.opt.ms_num - i - 1))
-                    rec_loss = self.opt.img_w * self.rec_criterion()(pred_images[i], self.multi_tar_images[i]) * (1 / 2 ** (self.opt.ms_num - i - 1))
-
-                    loss_iter[f'Scale {i} mask'] += mask_loss.item() 
-                    loss_iter[f'Scale {i} rho'] += rho_loss.item()
-                    loss_iter[f'Scale {i} flow'] += flow_loss.item()
-                    loss_iter[f'Scale {i} rec'] += rec_loss.item()
-
-                if (iter+1) % self.opt.val_display == 0:
-                    loss_epoch[iter] = self.display(epoch+1, iter+1, num_batches, loss_iter, split)
                     for i in range(self.opt.ms_num):
-                        loss_iter[f'Scale {i} mask'] = 0
-                        loss_iter[f'Scale {i} rho'] = 0
-                        loss_iter[f'Scale {i} flow'] = 0
-                        loss_iter[f'Scale {i} rec'] = 0
 
-                if (iter+1) % self.opt.val_save == 0:
-                    self.save_ms_results(epoch+1, iter+1, output, pred_images, split, 0)
+                        mask_loss = self.opt.mask_w * self.mask_criterion()(output[i][1], \
+                                self.multi_masks[i].squeeze(1).long()) * (1 / 2 ** (self.opt.ms_num - i - 1))
+                        rho_loss = self.opt.rho_w * self.rho_criterion()(output[i][2], \
+                                self.multi_rhos[i]) * (1 / 2 ** (self.opt.ms_num - i - 1))
+                        flow_loss = self.opt.flow_w * self.flow_criterion()(output[i][0], \
+                                self.multi_flows[i], self.multi_masks[i], self.multi_rhos[i]) * (1 / 2 ** (self.opt.ms_num - i - 1))
+                        rec_loss = self.opt.img_w * self.rec_criterion()(pred_images[i], \
+                                self.multi_tar_images[i]) * (1 / 2 ** (self.opt.ms_num - i - 1))
+
+                        loss_iter[f'Scale {i} mask'] += mask_loss.item() 
+                        loss_iter[f'Scale {i} rho'] += rho_loss.item()
+                        loss_iter[f'Scale {i} flow'] += flow_loss.item()
+                        loss_iter[f'Scale {i} rec'] += rec_loss.item()
+
+                    if (iter+1) % self.opt.val_display == 0:
+                        loss_epoch[iter] = self.display(epoch+1, iter+1, num_batches, loss_iter, split)
+                        for i in range(self.opt.ms_num):
+                            loss_iter[f'Scale {i} mask'] = 0
+                            loss_iter[f'Scale {i} rho'] = 0
+                            loss_iter[f'Scale {i} flow'] = 0
+                            loss_iter[f'Scale {i} rec'] = 0
+
+                    if (iter+1) % self.opt.val_save == 0:
+                        self.save_ms_results(epoch+1, iter+1, output, pred_images, split, 0)
 
         rec_err /= size
         rho_err /= size
@@ -491,8 +496,3 @@ class Trainer:
 
             self.multi_masks[i] = self.multi_masks[i].unsqueeze(1)
             self.multi_rhos[i] = self.multi_rhos[i].unsqueeze(1)
-
-    def update_lr(self, epoch: int) -> float:
-        ratio = (epoch >= self.opt.lr_decay_start and \
-            epoch % self.opt.lr_decay_step == 0) and 0.5 or 1.0
-        return self.optim_state['lr'] * ratio

@@ -40,7 +40,7 @@ class Upsample(nn.Module):
         od[f'bn{i+1}'] = nn.BatchNorm2d(in_channels)
         od[f'actv{i+1}'] = nn.ReLU(inplace=True)
 
-        self.upsample = nn.Sequential(od).cuda()
+        self.upsample = nn.Sequential(od)
 
     def forward(self, x: Tensor) -> Tensor:
         return self.upsample(x)
@@ -61,7 +61,7 @@ class Downsample(nn.Module):
             od[f'bn{i+1}'] = nn.BatchNorm2d(out_channels)
             od[f'actv{i+1}'] = nn.ReLU(inplace=True)
 
-        self.downsample = nn.Sequential(od).cuda()
+        self.downsample = nn.Sequential(od)
 
     def forward(self, x: Tensor) -> Tensor:
         return self.downsample(x)
@@ -92,19 +92,19 @@ class RefineNet(nn.Module):
 
         r = [ResNet(self.n, self.k) for _ in range(math.floor((self.layers-2) / 2))]
         
-        self.res = nn.Sequential(*r).cuda()
+        self.res = nn.Sequential(*r)
 
-        self.normalize = Normalize().cuda()
+        self.normalize = Normalize()
 
-        self.up1 = Upsample(self.n, self.factor).cuda()
-        self.up2 = Upsample(self.n, self.factor).cuda()
-        self.up3 = Upsample(self.n, self.factor).cuda()
+        self.up1 = Upsample(self.n, self.factor)
+        self.up2 = Upsample(self.n, self.factor)
+        self.up3 = Upsample(self.n, self.factor)
 
         self.down = Downsample(self.in_channels, self.n, 9, self.factor)
 
-        self.conv1 = nn.Conv2d(self.n+2, 2, 3, 1, 1).cuda() # flow
-        self.conv2 = nn.Conv2d(self.n+2, 2, 3, 1, 1).cuda() # mask
-        self.conv3 = nn.Conv2d(self.n+1, 1, 3, 1, 1).cuda() # rho
+        self.conv1 = nn.Conv2d(self.n+2, 2, 3, 1, 1) # flow
+        self.conv2 = nn.Conv2d(self.n+2, 2, 3, 1, 1) # mask
+        self.conv3 = nn.Conv2d(self.n+1, 1, 3, 1, 1) # rho
 
     def forward(self, x: List[Tensor]) -> Tensor:
         # x = [img:3, flow:2, mask:2, rho:1]
