@@ -283,11 +283,11 @@ class EPELoss(nn.Module):
     def __init__(self) -> None:
         super(EPELoss, self).__init__()
 
-    def forward(self, pred: Tensor, target: Tensor, mask: Tensor) -> Tensor:
+    def forward(self, pred: Tensor, target: Tensor, mask: Tensor, rho: Tensor) -> Tensor:
         target = target.narrow(1, 0, 2)
         mask = mask.expand_as(target)
-        pred = pred * mask
-        target = target * mask
+        pred = pred * mask * rho
+        target = target * mask * rho
 
         return torch.norm(target-pred, dim=1).mean()
 

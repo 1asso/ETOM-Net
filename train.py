@@ -9,6 +9,7 @@ from torch.utils.data import DataLoader
 from models import CoarseNet, RefineNet
 from argparse import Namespace
 from checkpoint import CheckPoint
+import torch.nn.functional as F
 
 class Trainer:
     def __init__(self, model: Union[CoarseNet.CoarseNet, RefineNet.RefineNet], 
@@ -158,7 +159,7 @@ class Trainer:
 
                 mask_loss = self.opt.mask_w * self.mask_criterion()(output[i][1], self.multi_masks[i].squeeze(1).long()) * (1 / 2 ** (self.opt.ms_num - i - 1)) + 1e-16
                 rho_loss = self.opt.rho_w * self.rho_criterion()(output[i][2], self.multi_rhos[i]) * (1 / 2 ** (self.opt.ms_num - i - 1)) + 1e-16
-                flow_loss = self.opt.flow_w * self.flow_criterion()(output[i][0], self.multi_flows[i], self.multi_masks[i]) * (1 / 2 ** (self.opt.ms_num - i - 1)) + 1e-16
+                flow_loss = self.opt.flow_w * self.flow_criterion()(output[i][0], self.multi_flows[i], self.multi_masks[i], self.multi_rhos[i]) * (1 / 2 ** (self.opt.ms_num - i - 1)) + 1e-16
                 rec_loss = self.opt.img_w * self.rec_criterion()(pred_images[i], self.multi_tar_images[i]) * (1 / 2 ** (self.opt.ms_num - i - 1)) + 1e-16
 
                 if i == 0:
@@ -205,7 +206,7 @@ class Trainer:
 
     def get_predicts(self, id: int, output: List[Tensor], pred_img: Tensor, m_scale: int) -> List[Tensor]:
         pred = [] 
-        if m_scale:
+        if m_scale != None:
             gt_color_flow = utility.flow_to_color(self.multi_flows[m_scale][id])
         else:
             gt_color_flow = utility.flow_to_color(self.flows[id])
@@ -218,7 +219,7 @@ class Trainer:
         rho = output[2][id].repeat(3, 1, 1)
         pred.append(rho)
 
-        if m_scale:
+        if m_scale != None:
             final_img = utility.get_final_pred(self.multi_ref_images[m_scale][id], pred_img[id], mask, rho)
             first_img = self.multi_tar_images[m_scale][id]
         else:
@@ -312,6 +313,24 @@ class Trainer:
         print(f'\n\n===== Testing after {epoch+1} epochs =====')
         
         self.model.eval()
+        
+        rec_err = 0
+        rho_err = 0
+        flow_err = 0
+        mask_err = 0
+        size = 400
+
+        def iou(pred, tar):
+            intersection = torch.logical_and(tar, pred)
+            union = torch.logical_or(tar, pred)
+            iou_score = torch.true_divide(torch.sum(intersection), torch.sum(union))
+            return iou_score
+
+        def epe(mask_gt, flow_gt, flow):
+            mask_gt = mask_gt.expand_as(flow_gt)
+            flow = flow * mask_gt
+            flow_gt = flow_gt * mask_gt
+            return torch.norm(flow_gt-flow, dim=1).mean() / 100
 
         if self.opt.refine:
             loss_iter['mask'] = 0
@@ -368,11 +387,17 @@ class Trainer:
 
                 loss = None
 
+                for i in range(output[-1][0].size(0)):
+                    rec_err += 100 * F.mse_loss(pred_images[-1][i], self.multi_tar_images[-1][i])
+                    rho_err += 100 * F.mse_loss(output[-1][2][i], self.multi_rhos[-1][i])
+                    flow_err += epe(self.multi_masks[-1][i], self.multi_flows[-1][i][0:2, :, :] * self.multi_rhos[-1][i], output[-1][0][i] * self.multi_rhos[-1][i])
+                    mask_err += iou(output[-1][1][i], self.multi_masks[-1][i])
+
                 for i in range(self.opt.ms_num):
 
                     mask_loss = self.opt.mask_w * self.mask_criterion()(output[i][1], self.multi_masks[i].squeeze(1).long()) * (1 / 2 ** (self.opt.ms_num - i - 1))
                     rho_loss = self.opt.rho_w * self.rho_criterion()(output[i][2], self.multi_rhos[i]) * (1 / 2 ** (self.opt.ms_num - i - 1))
-                    flow_loss = self.opt.flow_w * self.flow_criterion()(output[i][0], self.multi_flows[i], self.multi_masks[i]) * (1 / 2 ** (self.opt.ms_num - i - 1))
+                    flow_loss = self.opt.flow_w * self.flow_criterion()(output[i][0], self.multi_flows[i], self.multi_masks[i], self.multi_rhos[i]) * (1 / 2 ** (self.opt.ms_num - i - 1))
                     rec_loss = self.opt.img_w * self.rec_criterion()(pred_images[i], self.multi_tar_images[i]) * (1 / 2 ** (self.opt.ms_num - i - 1))
 
                     loss_iter[f'Scale {i} mask'] += mask_loss.item() 
@@ -390,8 +415,15 @@ class Trainer:
 
                 if (iter+1) % self.opt.val_save == 0:
                     self.save_ms_results(epoch+1, iter+1, output, pred_images, split, 0)
+
+        rec_err /= size
+        rho_err /= size
+        flow_err /= size
+        mask_err /= size
+        eval_str = f'rec_err: {rec_err}\nrho_err: {rho_err}\nflow_err: {flow_err}\nmask_err: {mask_err}\n'
         
         average_loss = utility.build_loss_string(utility.dict_of_dict_average(loss_epoch))
+        average_loss = eval_str + average_loss
         print(f'\n\n --> Epoch: [{epoch+1}] Loss summary: \n{average_loss}')
         return average_loss
 
