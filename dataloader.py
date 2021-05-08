@@ -83,7 +83,6 @@ class ETOMDataset(torch.utils.data.Dataset):
         print(f'totaling {len(self.image_info)} images')
         print(f'dataset filenames: {self.image_list}')
         print(f'dataset image directory: {self.dir}')
-        print(f'image size H * W: {self.opt.scale_h} * {self.opt.scale_w}')
 
     def transform(self, image: Tensor) -> Tensor:
         image = image
@@ -93,16 +92,6 @@ class ETOMDataset(torch.utils.data.Dataset):
         return len(self.image_info)
 
     def __getitem__(self, idx: int) -> Dict[str, Tensor]:
-        sc_w = self.opt.scale_w
-        sc_h = self.opt.scale_h
-        cr_w = self.opt.crop_w
-        cr_h = self.opt.crop_h
-
-        if self.opt.data_aug and self.split == 'train':
-            # randomize rescale size
-            sc_w = int(random.uniform(cr_w, sc_w * 1.05))
-            sc_h = int(random.uniform(cr_h, sc_h * 1.05))
-
         path = self.image_info.iloc[idx, 0]
         path_base = os.path.splitext(path)[0]
         path_input = path_base + '_1x.jpg'
@@ -139,15 +128,10 @@ class ETOMDataset(torch.utils.data.Dataset):
 
         # check if rescaling or croping is needed
         _, in_h, in_w = image_ref.size()
-        need_scale = in_h != sc_h or in_w != sc_w
         need_aug = False #self.opt.data_aug and (self.split == 'train' or self.split == 'val')
         need_flip = need_aug and torch.distributions.Uniform(0, 1).sample() > 0.5
         need_rotate = need_aug and self.opt.rot_ang and self.split == 'train'
-        need_crop = (sc_h != cr_h or sc_w != cr_w) and self.split == 'train'
 
-        if need_scale:
-            pass
-        
         if need_aug:
             dark = torch.lt(rho, 0.7).expand(3, rho.size(1), rho.size(2))
             image_tar[dark] = image_tar[dark] + torch.distributions.Uniform(0.01, 0.2).sample()
@@ -198,8 +182,6 @@ class ETOMDataset(torch.utils.data.Dataset):
         if need_rotate:
             pass
 
-        if need_crop:
-            pass
 
         sample = {}
         sample['input'] = final_input
