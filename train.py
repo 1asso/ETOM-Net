@@ -161,7 +161,11 @@ class Trainer:
                             self.multi_rhos[i]) * (1 / 2 ** (self.opt.ms_num - i - 1))
                     flow_loss = self.opt.flow_w * self.flow_criterion()(output[i][0], \
                             self.multi_flows[i], self.multi_masks[i], self.multi_rhos[i]) * (1 / 2 ** (self.opt.ms_num - i - 1))
-                    rec_loss = self.opt.img_w * self.rec_criterion()(pred_images[i], \
+                    mask = utility.get_mask(output[i][1]).expand(output[i][1].size(0), \
+                            3, output[i][1].size(2), output[i][1].size(3))
+                    final_pred = utility.get_final_pred(self.multi_ref_images[i], \
+                            pred_images[i], mask, output[i][2])
+                    rec_loss = self.opt.img_w * self.rec_criterion()(final_pred, \
                             self.multi_tar_images[i]) * (1 / 2 ** (self.opt.ms_num - i - 1))
                     
                     if i == 0:
@@ -388,12 +392,14 @@ class Trainer:
                     loss = None
 
                     for i in range(output[-1][0].size(0)):
-                        rec_err += 100 * F.mse_loss(pred_images[-1][i], self.multi_tar_images[-1][i])
+                        mask = torch.squeeze(utility.get_mask(output[-1][1][i].unsqueeze(0))).expand(3, \
+                                output[-1][1][i].size(1), output[-1][1][i].size(2))
+                        final_pred = utility.get_final_pred(self.multi_ref_images[-1][i], \
+                                pred_images[-1][i], mask, output[-1][2][i])
+                        rec_err += 100 * F.mse_loss(final_pred, self.multi_tar_images[-1][i])
                         rho_err += 100 * F.mse_loss(output[-1][2][i], self.multi_rhos[-1][i])
                         flow_err += epe(self.multi_masks[-1][i], self.multi_flows[-1][i][0:2, :, :] * \
                                 self.multi_rhos[-1][i], output[-1][0][i] * self.multi_rhos[-1][i])
-                        mask = torch.squeeze(utility.get_mask(output[-1][1][i].unsqueeze(0))).expand(3, \
-                                output[-1][1][i].size(1), output[-1][1][i].size(2))
                         mask_err += iou(mask, self.multi_masks[-1][i])
 
                     for i in range(self.opt.ms_num):
@@ -404,7 +410,11 @@ class Trainer:
                                 self.multi_rhos[i]) * (1 / 2 ** (self.opt.ms_num - i - 1))
                         flow_loss = self.opt.flow_w * self.flow_criterion()(output[i][0], \
                                 self.multi_flows[i], self.multi_masks[i], self.multi_rhos[i]) * (1 / 2 ** (self.opt.ms_num - i - 1))
-                        rec_loss = self.opt.img_w * self.rec_criterion()(pred_images[i], \
+                        mask = utility.get_mask(output[i][1]).expand(output[i][1].size(0), \
+                                3, output[i][1].size(2), output[i][1].size(3))
+                        final_pred = utility.get_final_pred(self.multi_ref_images[i], \
+                                pred_images[i], mask, output[i][2])
+                        rec_loss = self.opt.img_w * self.rec_criterion()(final_pred, \
                                 self.multi_tar_images[i]) * (1 / 2 ** (self.opt.ms_num - i - 1))
 
                         loss_iter[f'Scale {i} mask'] += mask_loss.item() 
