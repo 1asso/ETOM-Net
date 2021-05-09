@@ -392,7 +392,9 @@ class Trainer:
                         rho_err += 100 * F.mse_loss(output[-1][2][i], self.multi_rhos[-1][i])
                         flow_err += epe(self.multi_masks[-1][i], self.multi_flows[-1][i][0:2, :, :] * \
                                 self.multi_rhos[-1][i], output[-1][0][i] * self.multi_rhos[-1][i])
-                        mask_err += iou(output[-1][1][i], self.multi_masks[-1][i])
+                        mask = torch.squeeze(utility.get_mask(output[-1][1][i].unsqueeze(0))).expand(3, \
+                                output[-1][1][i].size(1), output[-1][1][i].size(2))
+                        mask_err += iou(mask, self.multi_masks[-1][i])
 
                     for i in range(self.opt.ms_num):
 
