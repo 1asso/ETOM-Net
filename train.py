@@ -107,7 +107,8 @@ class Trainer:
 
                 pred_images = self.single_flow_warping(output) # warp input image with flow
 
-                flow_loss = self.flow_criterion()(output[0], self.flows, self.masks.unsqueeze(1)) 
+                flow_loss = self.flow_criterion()(output[0], self.flows, \
+                        self.masks.unsqueeze(1), self.rhos.unsqueeze(1)) 
                 mask_loss = self.mask_criterion()(output[1] + eps, self.masks.squeeze(1).long()) 
                 rho_loss = self.rho_criterion()(output[2], self.rhos.unsqueeze(1))
 
@@ -353,7 +354,8 @@ class Trainer:
 
                     pred_images = self.single_flow_warping(output) # warp input image with flow
 
-                    flow_loss = self.flow_criterion()(output[0], self.flows, self.masks.unsqueeze(1)) 
+                    flow_loss = self.flow_criterion()(output[0], self.flows, \
+                            self.masks.unsqueeze(1), self.rhos.unsqueeze(1)) 
                     mask_loss = self.mask_criterion()(output[1], self.masks.squeeze(1).long()) 
                     rho_loss = self.rho_criterion()(output[2], self.rhos.unsqueeze(1))
                     
