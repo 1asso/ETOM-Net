@@ -10,8 +10,8 @@ import utility
 
 def update_history(opt: Namespace, epoch: int, loss: float, split: str) -> "model":
 
-    train_hist = utility.load_data(os.path.join(opt.resume and opt.resume or opt.save, 'train_hist.pt'))
-    val_hist = utility.load_data(os.path.join(opt.resume and opt.resume or opt.save, 'val_hist.pt'))
+    train_hist = utility.load_data(os.path.join(opt.save, 'train_hist.pt'))
+    val_hist = utility.load_data(os.path.join(opt.save, 'val_hist.pt'))
 
     if split == 'train':
         train_hist[epoch] = loss
