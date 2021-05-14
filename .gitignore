@@ -2,3 +2,4 @@
 *.pt
 data
 .DS_Store
+results

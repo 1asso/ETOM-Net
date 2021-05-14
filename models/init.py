@@ -13,11 +13,21 @@ def setup(opt, checkpoint):
         model = torch.load(opt.retrain)['model'].cuda(0)
         return model
     elif opt.refine:
-        print(f'\n\n --> Creating model from: models/RefineNet.py')
-        model = RefineNet.RefineNet(opt)
+        if not opt.val_only:
+            print(f'\n\n --> Creating model from: models/RefineNet.py')
+            model = RefineNet.RefineNet(opt)
+        else:
+            print(f'\n\n --> Loading model from: {opt.refine_dir}')
+            model = torch.load(opt.refine_dir)['model'].cuda(0)
+            return model
     else:
-        print(f'\n\n --> Creating model from: models/CoarseNet.py')
-        model = CoarseNet.CoarseNet(opt)
+        if not opt.val_only:
+            print(f'\n\n --> Creating model from: models/CoarseNet.py')
+            model = CoarseNet.CoarseNet(opt)
+        else:
+            print(f'\n\n --> Loading model from: {opt.pred_dir}')
+            model = torch.load(opt.pred_dir)['model'].cuda(0)
+            return model
 
     if torch.cuda.device_count() > 1:
           model = nn.DataParallel(model).cuda(0)

@@ -77,6 +77,10 @@ parser.add_argument('--pred_dir', type=str, default='coarse.pt',
                     help='predictor path')
 parser.add_argument('--refine_dir', type=str, default='refine.pt',
                     help='predictor path')
+parser.add_argument('--val_only', action='store_true',
+                    help='run on validation set only')
+parser.add_argument('--save_images', action='store_true',
+                    help='save test results')
 
 # checkpoint options
 parser.add_argument('--resume', type=str, default=None,
@@ -109,9 +113,6 @@ parser.add_argument('--val_display', type=int, default=1,
                     help='iteration to display val loss')
 parser.add_argument('--val_save', type=int, default=1,
                     help='iteration to save val results')
-parser.add_argument('--val_only', action='store_true',
-                    help='run on validation set only')
-
 
 args = parser.parse_args()
 

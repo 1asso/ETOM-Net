@@ -11,6 +11,7 @@ from argparse import Namespace
 from checkpoint import CheckPoint
 import torch.nn.functional as F
 from torch.optim.lr_scheduler import StepLR
+from torchvision.utils import save_image
 
 
 class Trainer:
@@ -210,6 +211,29 @@ class Trainer:
         f_names = f'epoch:{epoch}_iter:{iter}_id:{id}'
         return os.path.join(f_path, f_names + '.png')
 
+    def save_images(self, pred_images: Tensor, output: List[Tensor], count: int) -> int:
+        for i in range(pred_images.size()[0]):
+            print(count)
+            os.makedirs(f'results/{count}')
+            mask = torch.squeeze(utility.get_mask(output[1][i].unsqueeze(0))).expand(3, output[1].size(2), output[1].size(3))
+            rho = output[2][i].repeat(3, 1, 1)
+            final_img = utility.get_final_pred(self.ref_images[i], pred_images[i], mask, rho)
+            save_image(final_img, f'results/{count}/in_rec.jpg')
+            save_image(mask.float(), f'results/{count}/mask.jpg')
+            save_image(rho, f'results/{count}/rho.jpg')
+            utility.save_flow(f'results/{count}/flow.flo', output[0][i])
+
+            save_image(self.ref_images[i], f'results/{count}/bg.jpg')
+            save_image(self.masks[i], f'results/{count}/mask_gt.jpg')
+            save_image(self.rhos[i], f'results/{count}/rho_gt.jpg')
+            save_image(self.input_image[i], f'results/{count}/input.jpg')
+            save_image(self.tar_images[i], f'results/{count}/tar.jpg')
+            utility.save_flow(f'results/{count}/flow_gt.flo', self.flows[i][0:2, :, :])
+            save_image(utility.flow_to_color(torch.mul(output[0][i], self.masks[i])), f'results/{count}/fcolor.jpg')
+            save_image(utility.flow_to_color(self.flows[i]), f'results/{count}/fcolor_gt.jpg')
+            count += 1
+        return count
+
     def get_predicts(self, id: int, output: List[Tensor], pred_img: Tensor, m_scale: int) -> List[Tensor]:
         pred = [] 
         if m_scale != None:
@@ -378,6 +402,8 @@ class Trainer:
                 loss_iter[f'Scale {i} flow'] = 0
                 loss_iter[f'Scale {i} rec'] = 0
 
+            count = 1
+
             for iter, sample in enumerate(dataloader):
 
                 with torch.no_grad():
@@ -390,6 +416,9 @@ class Trainer:
 
                     output = self.model.forward(input)
                     pred_images = self.flow_warping(output) # warp input image with flow
+
+                    if self.opt.save_images:
+                        count = self.save_images(pred_images[-1], output[-1], count)
 
                     loss = None
 
