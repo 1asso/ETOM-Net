@@ -74,7 +74,7 @@ class Normalize(nn.Module):
         self.ratio = 1/512
 
     def forward(self, x: List[Tensor]) -> Tensor:
-        x[1] *= self.ratio
+        x[1] = x[1] * self.ratio
         x[2] = self.sm(x[2])
         x = torch.cat(x, dim=1)
         return x

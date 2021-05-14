@@ -108,10 +108,10 @@ class Trainer:
 
                 pred_images = self.single_flow_warping(output) # warp input image with flow
 
-                flow_loss = self.flow_criterion()(output[0], self.flows, \
+                flow_loss = self.opt.r_flow_w * self.flow_criterion()(output[0], self.flows, \
                         self.masks.unsqueeze(1), self.rhos.unsqueeze(1)) 
-                mask_loss = self.mask_criterion()(output[1] + eps, self.masks.squeeze(1).long()) 
-                rho_loss = self.rho_criterion()(output[2], self.rhos.unsqueeze(1))
+                mask_loss = self.opt.r_mask_w * self.mask_criterion()(output[1] + eps, self.masks.squeeze(1).long()) 
+                rho_loss = self.opt.r_rho_w * self.rho_criterion()(output[2], self.rhos.unsqueeze(1))
 
                 loss = flow_loss + mask_loss + rho_loss
                 
@@ -366,6 +366,8 @@ class Trainer:
             loss_iter['rho'] = 0
             loss_iter['flow'] = 0
 
+            count = 1
+
             for iter, sample in enumerate(dataloader):
 
                 with torch.no_grad():
@@ -377,11 +379,25 @@ class Trainer:
                     output = self.model.forward(input)     
 
                     pred_images = self.single_flow_warping(output) # warp input image with flow
+                    
+                    if self.opt.save_images:
+                        count = self.save_images(pred_images, output, count)
 
-                    flow_loss = self.flow_criterion()(output[0], self.flows, \
+                    for i in range(output[0].size(0)):
+                        mask = torch.squeeze(utility.get_mask(output[1][i].unsqueeze(0))).expand(3, \
+                                output[1][i].size(1), output[1][i].size(2))
+                        final_pred = utility.get_final_pred(self.ref_images[i], \
+                                pred_images[i], mask, output[2][i]) 
+                        rec_err += 100 * F.mse_loss(final_pred, self.tar_images[i])
+                        rho_err += 100 * F.mse_loss(output[2][i], self.rhos[i])
+                        flow_err += epe(self.masks[i], self.flows[i][0:2, :, :] * \
+                                self.rhos[i], output[0][i] * self.rhos[i])
+                        mask_err += iou(mask, self.masks[i])
+
+                    flow_loss = self.opt.r_flow_w * self.flow_criterion()(output[0], self.flows, \
                             self.masks.unsqueeze(1), self.rhos.unsqueeze(1)) 
-                    mask_loss = self.mask_criterion()(output[1], self.masks.squeeze(1).long()) 
-                    rho_loss = self.rho_criterion()(output[2], self.rhos.unsqueeze(1))
+                    mask_loss = self.opt.r_mask_w * self.mask_criterion()(output[1], self.masks.squeeze(1).long()) 
+                    rho_loss = self.opt.r_rho_w * self.rho_criterion()(output[2], self.rhos.unsqueeze(1))
                     
                     loss_iter['mask'] += mask_loss.item() 
                     loss_iter['rho'] += rho_loss.item()
