@@ -28,9 +28,3 @@ if __name__ == '__main__':
 		
 		ori = glob.glob(os.path.join(ori_dir, name))[0]
 		copyfile(ori, input[:-10] + '_tar.png')
-		
-		
-	
-	
-	
-	

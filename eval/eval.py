@@ -46,7 +46,6 @@ def epe(mask_gt, flow_gt, flow):
 	return torch.norm(flow_gt-flow, dim=1).mean() / 100
 	
 if __name__ == '__main__':
-	
 	sub_dir = [os.path.join(root_dir, name) for name in os.listdir(root_dir) if os.path.isdir(os.path.join(root_dir, name))]
 	print(len(sub_dir))
 	
@@ -110,6 +109,3 @@ if __name__ == '__main__':
 	print(f'rho_err: {rho_err}')
 	print(f'flow_err: {flow_err}')
 	print(f'mask_err: {mask_err}')
-
-
-		

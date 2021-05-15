@@ -39,7 +39,6 @@ def create_single_warping(input):
 	output = F.grid_sample(ref, grid, align_corners=True)
 	return output
 
-
 def grid_generator(flow):
 	B, C, H, W = flow.size()
 	# mesh grid 
@@ -69,7 +68,6 @@ def get_final_pred(ref_img, pred_img, pred_mask, pred_rho):
 	final_pred_img = torch.mul(1 - pred_mask, ref_img) + torch.mul(pred_mask, torch.mul(pred_img, pred_rho))
 	return final_pred_img
 
-
 bg = glob.glob(os.path.join(root_dir, '*bg.png'))[0]
 bg = Image.open(bg)
 bg = TF.to_tensor(bg)
@@ -86,7 +84,6 @@ rho = TF.to_tensor(rho.convert('L'))
 flow = glob.glob(os.path.join(root_dir, '*flow.png'))[0]
 flow = load_flow(flow)
 
-
 pred = create_single_warping([bg.unsqueeze(0), flow.unsqueeze(0)])
 
 final = get_final_pred(bg, pred, mask, rho)
@@ -94,8 +91,3 @@ final = get_final_pred(bg, pred, mask, rho)
 save_image(final, root_dir + 'rec.png')
 
 print('done')
-
-
-
-
-
