@@ -106,6 +106,7 @@ class RefineNet(nn.Module):
 
     def forward(self, x: List[Tensor]) -> Tensor:
         # x = [img:3, flow:2, mask:2, rho:1]
+        rho = x[3].clone()
         normalized_x = self.normalize(x)
 
         downsampled_x = self.down(normalized_x)
@@ -117,6 +118,5 @@ class RefineNet(nn.Module):
 
         flow = self.conv1(torch.cat([f_flow, x[1]], dim=1))
         mask = self.conv2(torch.cat([f_mask, x[2]], dim=1))
-        rho = x[3]
 
         return [flow, mask, rho]
