@@ -67,7 +67,7 @@ class Trainer:
         if self.opt.solver == 'ADAM':
             print('[Solver] Using Adam solver')
             optim_state = in_optim_state or {
-                'lr': self.opt.lr,
+                'lr': self.opt.lr_r if self.opt.refine else self.opt.lr,
                 'betas': (self.opt.beta_1, self.opt.beta_2)
             }
         else:
@@ -95,7 +95,6 @@ class Trainer:
 
         if self.opt.refine:
             loss_iter['mask'] = 0
-            loss_iter['rho'] = 0
             loss_iter['flow'] = 0
 
             for iter, sample in enumerate(dataloader):
@@ -111,12 +110,10 @@ class Trainer:
                 flow_loss = self.opt.r_flow_w * self.flow_criterion()(output[0], self.flows, \
                         self.masks.unsqueeze(1), self.rhos.unsqueeze(1)) 
                 mask_loss = self.opt.r_mask_w * self.mask_criterion()(output[1] + eps, self.masks.squeeze(1).long()) 
-                rho_loss = self.opt.r_rho_w * self.rho_criterion()(output[2], self.rhos.unsqueeze(1))
 
-                loss = flow_loss + mask_loss + rho_loss
+                loss = flow_loss + mask_loss
                 
                 loss_iter['mask'] += mask_loss.item() 
-                loss_iter['rho'] += rho_loss.item()
                 loss_iter['flow'] += flow_loss.item()
 
                 # Perform a backward pass
@@ -130,7 +127,6 @@ class Trainer:
                 if (iter+1) % self.opt.train_display == 0:
                     loss_epoch[iter] = self.display(epoch+1, iter+1, num_batches, loss_iter, split)
                     loss_iter['mask'] = 0
-                    loss_iter['rho'] = 0
                     loss_iter['flow'] = 0
 
                 if (iter+1) % self.opt.train_save == 0:
@@ -363,7 +359,6 @@ class Trainer:
 
         if self.opt.refine:
             loss_iter['mask'] = 0
-            loss_iter['rho'] = 0
             loss_iter['flow'] = 0
 
             count = 1
@@ -397,16 +392,13 @@ class Trainer:
                     flow_loss = self.opt.r_flow_w * self.flow_criterion()(output[0], self.flows, \
                             self.masks.unsqueeze(1), self.rhos.unsqueeze(1)) 
                     mask_loss = self.opt.r_mask_w * self.mask_criterion()(output[1], self.masks.squeeze(1).long()) 
-                    rho_loss = self.opt.r_rho_w * self.rho_criterion()(output[2], self.rhos.unsqueeze(1))
                     
                     loss_iter['mask'] += mask_loss.item() 
-                    loss_iter['rho'] += rho_loss.item()
                     loss_iter['flow'] += flow_loss.item()
 
                     if (iter+1) % self.opt.val_display == 0:
                         loss_epoch[iter] = self.display(epoch+1, iter+1, num_batches, loss_iter, split)
                         loss_iter['mask'] = 0
-                        loss_iter['rho'] = 0
                         loss_iter['flow'] = 0
 
                     if (iter+1) % self.opt.val_save == 0:

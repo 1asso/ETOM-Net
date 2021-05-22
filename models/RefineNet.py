@@ -98,13 +98,11 @@ class RefineNet(nn.Module):
 
         self.up1 = Upsample(self.n, self.factor)
         self.up2 = Upsample(self.n, self.factor)
-        self.up3 = Upsample(self.n, self.factor)
 
         self.down = Downsample(self.in_channels, self.n, 9, self.factor)
 
         self.conv1 = nn.Conv2d(self.n+2, 2, 3, 1, 1) # flow
         self.conv2 = nn.Conv2d(self.n+2, 2, 3, 1, 1) # mask
-        self.conv3 = nn.Conv2d(self.n+1, 1, 3, 1, 1) # rho
 
     def forward(self, x: List[Tensor]) -> Tensor:
         # x = [img:3, flow:2, mask:2, rho:1]
@@ -116,10 +114,9 @@ class RefineNet(nn.Module):
 
         f_flow = self.up1(res)
         f_mask = self.up2(res)
-        f_rho = self.up3(res)
 
         flow = self.conv1(torch.cat([f_flow, x[1]], dim=1))
         mask = self.conv2(torch.cat([f_mask, x[2]], dim=1))
-        rho = self.conv3(torch.cat([f_rho, x[3]], dim=1))
+        rho = x[3]
 
         return [flow, mask, rho]

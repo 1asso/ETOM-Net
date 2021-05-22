@@ -11,7 +11,7 @@ def get_save_dir_name(args: argparse.Namespace) -> Tuple[str, str]:
     time = now.strftime("%H:%M:%S")
     d_name = date + '_' + (args.refine and 'RefineNet' or 'CoarseNet')
 
-    params = ['flow_w', 'mask_w', 'rho_w', 'img_w', 'lr'] if not args.refine else ['r_flow_w', 'r_mask_w', 'r_rho_w', 'lr']
+    params = ['flow_w', 'mask_w', 'rho_w', 'img_w', 'lr'] if not args.refine else ['r_flow_w', 'r_mask_w', 'lr_r']
     for p in params:
         d_name = d_name + '_' + p + '-' + str(vars(args)[p])
 
@@ -56,6 +56,8 @@ parser.add_argument('--ga', type=int, default=1,
 parser.add_argument('--batch_size', type=int, default=8,
                     help='mini-batch size')
 parser.add_argument('--lr', type=float, default=0.0005,
+                    help='initial learning rate')
+parser.add_argument('--lr_r', type=float, default=0.0002,
                     help='initial learning rate')
 parser.add_argument('--lr_decay_start', type=int, default=5,
                     help='number of epochs when lr start to decay')
@@ -105,8 +107,6 @@ parser.add_argument('--r_flow_w', type=float, default=1,
                     help='flow weight')
 parser.add_argument('--r_mask_w', type=float, default=1,
                     help='mask weight')
-parser.add_argument('--r_rho_w', type=int, default=10,
-                    help='attenuation mask weight')
 
 # display options
 parser.add_argument('--train_display', type=int, default=20,
