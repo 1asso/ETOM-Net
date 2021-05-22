@@ -105,7 +105,7 @@ parser.add_argument('--rho_w', type=int, default=10,
                     help='attenuation mask weight')
 parser.add_argument('--r_flow_w', type=float, default=1,
                     help='flow weight')
-parser.add_argument('--r_mask_w', type=float, default=1,
+parser.add_argument('--r_mask_w', type=float, default=10,
                     help='mask weight')
 
 # display options
